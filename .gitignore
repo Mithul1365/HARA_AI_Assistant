@@ -1,0 +1,36 @@
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Streamlit cache
+.streamlit/
+
+# IDE files
+.vscode/
+
+# Environment / secret files
+.env
+.env.*
+
+# Local logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local model / cache files
+*.bin
+*.safetensors
+*.gguf
+
+# Python test/cache
+.pytest_cache/
+.mypy_cache/
+
+# Temporary files
+*.tmp
+*.temp

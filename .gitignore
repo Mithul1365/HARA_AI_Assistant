@@ -34,3 +34,9 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+# Runtime-generated files
+data/uploaded_index_cache/
+output/*.json
+
+# Local backup files
+app_backup_*.py

@@ -5,20 +5,10 @@ import pickle
 import json
 import streamlit as st
 from io import BytesIO
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-)
-
 from backend.llm_engine import analyze_with_qwen
-from backend.document_processor import extract_text_from_pdf
+def extract_text_from_pdf(*args, **kwargs):
+    from backend.document_processor import extract_text_from_pdf as _extract
+    return _extract(*args, **kwargs)
 
 from backend.asil_engine import (
     calculate_asil,
@@ -67,15 +57,41 @@ from backend.audit_engine import (
 
 from rag.chunker import create_chunks
 
-from rag.vector_store import (
-    create_vector_store,
-    search_documents
-)
+# Heavy RAG modules are imported lazily so Streamlit can render the UI
+# without loading SentenceTransformer / PyTorch / FAISS at startup.
 
-from rag.knowledge_base_index import (
-    build_and_save_knowledge_base_index,
-    load_saved_knowledge_base_index
-)
+def create_vector_store(*args, **kwargs):
+    from rag.vector_store import create_vector_store as _create_vector_store
+    return _create_vector_store(*args, **kwargs)
+
+
+def search_documents(*args, **kwargs):
+    from rag.vector_store import search_documents as _search_documents
+    return _search_documents(*args, **kwargs)
+
+
+def load_saved_knowledge_base_index():
+    from rag.knowledge_base_index import load_saved_knowledge_base_index as _load
+    return _load()
+
+
+def build_and_save_knowledge_base_index():
+    from rag.knowledge_base_index import build_and_save_knowledge_base_index as _build
+    return _build()
+
+
+@st.cache_resource(show_spinner=False)
+def get_knowledge_base():
+    """
+    Load the persistent automotive KB only when HARA actually needs it.
+    Streamlit keeps the loaded resource cached for the running app.
+    """
+    chunks, index = load_saved_knowledge_base_index()
+
+    if index is None:
+        chunks, index = build_and_save_knowledge_base_index()
+
+    return chunks, index
 
 AUDIT_HISTORY_PATH = Path("output") / "audit_history.json"
 REVIEW_DECISIONS_PATH = Path("output") / "review_decisions.json"
@@ -114,45 +130,15 @@ st.info(
 # =========================================================
 # LOAD KNOWLEDGE BASE
 # =========================================================
+# IMPORTANT:
+# Do NOT load SentenceTransformer / FAISS / the automotive KB here.
+# The old version loaded these resources before the UI was rendered,
+# which increased Streamlit startup time.
+#
+# The KB is now loaded lazily inside HARA Analysis only when required.
 
-if "knowledge_base_chunks" not in st.session_state:
-
-    with st.spinner(
-        "Loading automotive engineering knowledge base..."
-    ):
-
-        kb_chunks, kb_index = (
-            load_saved_knowledge_base_index()
-        )
-
-    if kb_index is None:
-
-        with st.spinner(
-            "First-time setup: building knowledge base index..."
-        ):
-
-            kb_chunks, kb_index = (
-                build_and_save_knowledge_base_index()
-            )
-
-    st.session_state[
-        "knowledge_base_chunks"
-    ] = kb_chunks
-
-    st.session_state[
-        "knowledge_base_index"
-    ] = kb_index
-
-
-kb_chunks = st.session_state.get(
-    "knowledge_base_chunks",
-    []
-)
-
-kb_index = st.session_state.get(
-    "knowledge_base_index"
-)
-
+kb_chunks = []
+kb_index = None
 
 # =========================================================
 # 1. ENGINEERING DOCUMENT
@@ -536,12 +522,6 @@ if st.button(
             "Please enter an Operational Scenario."
         )
 
-    elif not kb_chunks:
-
-        st.warning(
-            "Engineering knowledge base is empty."
-        )
-
     else:
 
         query = f"""
@@ -603,23 +583,33 @@ hazardous events.
         # -------------------------------------------------
         # FALLBACK: KNOWLEDGE BASE
         # -------------------------------------------------
+        # The heavy KB is loaded only if the uploaded document
+        # did not provide usable evidence.
 
         if not evidence_results:
 
             with st.spinner(
-                "Checking engineering knowledge base..."
+                "Loading automotive engineering knowledge base..."
             ):
 
-                evidence_results = search_documents(
-                    query=query,
-                    chunks=kb_chunks,
-                    index=kb_index,
-                    top_k=5
-                )
+                kb_chunks, kb_index = get_knowledge_base()
 
-            evidence_source = (
-                "Automotive Engineering Knowledge Base"
-            )
+            if kb_index is not None and kb_chunks:
+
+                with st.spinner(
+                    "Checking engineering knowledge base..."
+                ):
+
+                    evidence_results = search_documents(
+                        query=query,
+                        chunks=kb_chunks,
+                        index=kb_index,
+                        top_k=5
+                    )
+
+                evidence_source = (
+                    "Automotive Engineering Knowledge Base"
+                )
 
         # -------------------------------------------------
         # NO EVIDENCE
@@ -688,7 +678,7 @@ hazardous events.
             # -------------------------------------------------
 
             with st.spinner(
-                "Qwen3 is analyzing the engineering evidence..."
+                "AI is analyzing the engineering evidence..."
             ):
 
                 answer = analyze_with_qwen(
@@ -787,8 +777,107 @@ if "hara_answer" in st.session_state:
             "🤖 AI-Assisted HARA Result"
         )
 
-    st.write(
-        st.session_state["hara_answer"]
+    # Render the HARA result as readable scenario blocks instead of
+    # one long paragraph. This does not change the generated content.
+    answer_text = st.session_state["hara_answer"]
+
+    def render_hara_scenarios(answer, quick=False):
+        """Render Quick/Detailed HARA output in structured Markdown."""
+
+        import re
+
+        # Split only at Scenario N headings.
+        parts = re.split(r"(?=Scenario\s+\d+\s*:?)", answer.strip())
+
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+
+            lines = [line.strip() for line in part.splitlines() if line.strip()]
+            if not lines:
+                continue
+
+            # Extract scenario number.
+            match = re.match(r"Scenario\s+(\d+)\s*:?", lines[0], re.IGNORECASE)
+            if not match:
+                continue
+
+            scenario_no = match.group(1)
+
+            fields = {}
+
+            for line in lines[1:]:
+                if ":" not in line:
+                    continue
+
+                key, value = line.split(":", 1)
+                key = key.strip().lower()
+                value = value.strip()
+
+                if key in {
+                    "malfunction",
+                    "potential malfunction",
+                    "hazard",
+                    "potential hazard",
+                    "hazardous event",
+                    "event",
+                    "rationale",
+                    "engineering evidence",
+                    "evidence",
+                }:
+                    fields[key] = value
+
+            if quick:
+                malfunction = fields.get(
+                    "malfunction",
+                    fields.get("potential malfunction", "")
+                )
+                hazard = fields.get(
+                    "hazard",
+                    fields.get("potential hazard", "")
+                )
+                event = fields.get(
+                    "hazardous event",
+                    fields.get("event", "")
+                )
+
+                st.markdown(f"### Scenario {scenario_no}")
+                st.markdown(f"- **Malfunction:** {malfunction}")
+                st.markdown(f"- **Hazard:** {hazard}")
+                st.markdown(f"- **Hazardous Event:** {event}")
+
+            else:
+                malfunction = fields.get(
+                    "potential malfunction",
+                    fields.get("malfunction", "")
+                )
+                hazard = fields.get(
+                    "potential hazard",
+                    fields.get("hazard", "")
+                )
+                event = fields.get(
+                    "hazardous event",
+                    fields.get("event", "")
+                )
+                rationale = fields.get("rationale", "")
+                evidence_value = fields.get(
+                    "engineering evidence",
+                    fields.get("evidence", "")
+                )
+
+                st.markdown(f"### Scenario {scenario_no}")
+                st.markdown(f"- **Potential Malfunction:** {malfunction}")
+                st.markdown(f"- **Potential Hazard:** {hazard}")
+                st.markdown(f"- **Hazardous Event:** {event}")
+                st.markdown(f"- **Rationale:** {rationale}")
+                st.markdown(f"- **Engineering Evidence:** {evidence_value}")
+
+            st.divider()
+
+    render_hara_scenarios(
+        answer_text,
+        quick=summary_mode
     )
 
     st.info(
@@ -866,155 +955,72 @@ st.write(
 # =========================================================
 
 def extract_hara_candidates(hara_text):
-
+    """Convert HARA text into structured candidates robustly."""
     candidates = []
-
     if not hara_text:
         return candidates
 
-    hara_text = str(hara_text)
+    text = str(hara_text).replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("**", "").replace("__", "")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
 
-    lines = [
-        line.strip()
-        for line in hara_text.splitlines()
-        if line.strip()
-    ]
+    # First try the normal labelled format.  Labels may be prefixed by
+    # Scenario 1:, bullets, numbering, or markdown.
+    current = {"malfunction": "", "hazard": ""}
+    label_re = {
+        "malfunction": re.compile(r"^(?:[-*•\s\d\.)]+)?(?:potential\s+)?malfunction\s*:\s*(.+)$", re.I),
+        "hazard": re.compile(r"^(?:[-*•\s\d\.)]+)?(?:potential\s+)?hazard\s*:\s*(.+)$", re.I),
+        "event": re.compile(r"^(?:[-*•\s\d\.)]+)?hazardous\s+event\s*:\s*(.+)$", re.I),
+    }
 
-    current_malfunction = ""
-    current_hazard = ""
+    for raw in lines:
+        line = raw.strip()
+        # Remove a leading Scenario N: marker but keep the rest of the line.
+        line = re.sub(r"^scenario\s*\d+\s*:\s*", "", line, flags=re.I)
+        line = re.sub(r"^[\s\d\.\)\-•*]+", "", line).strip()
 
-    for line in lines:
-
-        clean_line = line.strip()
-
-        clean_line = re.sub(
-            r"^[\-\*\d\.\)\s]+",
-            "",
-            clean_line
-        )
-
-        clean_line = clean_line.replace("**", "")
-        clean_line = clean_line.replace("__", "")
-
-        lower_line = clean_line.lower()
-
-        if re.match(
-            r"^malfunction\s*:",
-            lower_line
-        ):
-
-            current_malfunction = re.split(
-                r":",
-                clean_line,
-                maxsplit=1
-            )[1].strip()
-
+        m = label_re["malfunction"].match(line)
+        if m:
+            current = {"malfunction": m.group(1).strip(), "hazard": ""}
             continue
-
-        if re.match(
-            r"^hazard\s*:",
-            lower_line
-        ):
-
-            current_hazard = re.split(
-                r":",
-                clean_line,
-                maxsplit=1
-            )[1].strip()
-
+        m = label_re["hazard"].match(line)
+        if m:
+            current["hazard"] = m.group(1).strip()
             continue
+        m = label_re["event"].match(line)
+        if m and current.get("hazard"):
+            candidates.append({
+                "malfunction": current.get("malfunction") or "Identified malfunction",
+                "hazard": current["hazard"],
+                "hazardous_event": m.group(1).strip(),
+            })
+            current = {"malfunction": "", "hazard": ""}
 
-        if re.match(
-            r"^hazardous\s+event\s*:",
-            lower_line
-        ):
-
-            hazardous_event = re.split(
-                r":",
-                clean_line,
-                maxsplit=1
-            )[1].strip()
-
-            if current_hazard:
-
-                candidates.append(
-                    {
-                        "malfunction": (
-                            current_malfunction
-                            if current_malfunction
-                            else "Identified malfunction"
-                        ),
-                        "hazard": current_hazard,
-                        "hazardous_event": hazardous_event
-                    }
-                )
-
-            current_malfunction = ""
-            current_hazard = ""
-
-    # Arrow format: Malfunction → Hazard → Hazardous Event
-    if not candidates:
-
-        for line in lines:
-
+    # Support compact one-line chains: M -> H -> HE or M → H → HE.
+    if len(candidates) < 3:
+        for raw in lines:
+            line = re.sub(r"^scenario\s*\d+\s*:\s*", "", raw, flags=re.I)
+            line = re.sub(r"^[\s\d\.\)\-•*]+", "", line).strip()
             if "→" in line:
+                parts = [p.strip() for p in line.split("→") if p.strip()]
+            elif "->" in line:
+                parts = [p.strip() for p in line.split("->") if p.strip()]
+            else:
+                continue
+            if len(parts) >= 3:
+                candidates.append({"malfunction": parts[0], "hazard": parts[1], "hazardous_event": parts[2]})
 
-                parts = [
-                    part.strip()
-                    for part in line.split("→")
-                    if part.strip()
-                ]
-
-                if len(parts) >= 3:
-
-                    candidates.append(
-                        {
-                            "malfunction": parts[0],
-                            "hazard": parts[1],
-                            "hazardous_event": parts[2]
-                        }
-                    )
-
-    # ASCII arrow format
-    if not candidates:
-
-        for line in lines:
-
-            if "->" in line:
-
-                parts = [
-                    part.strip()
-                    for part in line.split("->")
-                    if part.strip()
-                ]
-
-                if len(parts) >= 3:
-
-                    candidates.append(
-                        {
-                            "malfunction": parts[0],
-                            "hazard": parts[1],
-                            "hazardous_event": parts[2]
-                        }
-                    )
-
-    unique_candidates = []
+    # If Qwen returned fewer than three candidates, preserve what it did return.
+    # The quick mode itself now guarantees three structured candidates, so this
+    # fallback mainly protects against truncated model output in detailed mode.
+    unique = []
     seen = set()
-
-    for candidate in candidates:
-
-        key = (
-            candidate["malfunction"].lower(),
-            candidate["hazard"].lower(),
-            candidate["hazardous_event"].lower()
-        )
-
+    for c in candidates:
+        key = tuple(c[k].strip().lower() for k in ("malfunction", "hazard", "hazardous_event"))
         if key not in seen:
-
             seen.add(key)
-            unique_candidates.append(candidate)
-
-    return unique_candidates
+            unique.append(c)
+    return unique
 
 
 # =========================================================
@@ -1141,9 +1147,8 @@ else:
     )
 
     st.info(
-        "Candidates are prioritized using transparent keyword-based "
-        "risk indicators. This ranking is decision-support only; "
-        "the engineer must select the HARA candidate for assessment."
+        "Multiple HARA candidates were identified. Select the candidate "
+        "you want to assess for S/E/C. The selection does not change the AI result."
     )
 
     candidate_labels = []
@@ -1158,7 +1163,8 @@ else:
         candidate_labels.append(
             f"{rank}. [{item['priority']}] "
             f"{candidate['malfunction']} → "
-            f"{candidate['hazard']}"
+            f"{candidate['hazard']} → "
+            f"{candidate['hazardous_event']}"
         )
 
     selected_rank = st.selectbox(
@@ -2413,6 +2419,24 @@ else:
 
 def create_audit_report_pdf(history):
     """Generate a human-readable PDF audit report."""
+
+    # ReportLab is only needed when the user views/downloads
+    # the audit report, so import it lazily.
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import (
+        getSampleStyleSheet,
+        ParagraphStyle,
+    )
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+
     buffer = BytesIO()
 
     doc = SimpleDocTemplate(

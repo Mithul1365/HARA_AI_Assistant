@@ -4,6 +4,9 @@ import hashlib
 import pickle
 import json
 import streamlit as st
+import pyttsx3
+import subprocess
+import sys
 from io import BytesIO
 from backend.llm_engine import analyze_with_qwen
 def extract_text_from_pdf(*args, **kwargs):
@@ -781,6 +784,156 @@ if "hara_answer" in st.session_state:
     # one long paragraph. This does not change the generated content.
     answer_text = st.session_state["hara_answer"]
 
+    def speak_hara_summary(answer, quick=False):
+        """Read HARA summary and resume from the last spoken position."""
+        import hashlib
+        import json
+        import os
+        import re
+
+        # Stop any previous playback process before starting/resuming.
+        old_process = st.session_state.get("voice_process")
+        if old_process is not None and old_process.poll() is None:
+            try:
+                old_process.terminate()
+                old_process.wait(timeout=1)
+            except Exception:
+                try:
+                    old_process.kill()
+                except Exception:
+                    pass
+
+        parts = re.split(r"(?=Scenario\s+\d+\s*:?)", answer.strip())
+        spoken = []
+
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+
+            lines = [line.strip() for line in part.splitlines() if line.strip()]
+            if not lines:
+                continue
+
+            match = re.match(
+                r"Scenario\s+(\d+)\s*:?",
+                lines[0],
+                re.IGNORECASE
+            )
+            if not match:
+                continue
+
+            scenario_no = match.group(1)
+            fields = {}
+
+            for line in lines[1:]:
+                if ":" not in line:
+                    continue
+
+                key, value = line.split(":", 1)
+                key = key.strip().lower()
+                value = value.strip()
+
+                if key in {
+                    "malfunction",
+                    "potential malfunction",
+                    "hazard",
+                    "potential hazard",
+                    "hazardous event",
+                    "event",
+                    "rationale",
+                }:
+                    fields[key] = value
+
+            malfunction = fields.get(
+                "potential malfunction",
+                fields.get("malfunction", "")
+            )
+            hazard = fields.get(
+                "potential hazard",
+                fields.get("hazard", "")
+            )
+            event = fields.get(
+                "hazardous event",
+                fields.get("event", "")
+            )
+
+            sentence = (
+                f"Scenario {scenario_no}. "
+                f"Malfunction: {malfunction}. "
+                f"Hazard: {hazard}. "
+                f"Hazardous Event: {event}."
+            )
+
+            if not quick:
+                rationale = fields.get("rationale", "")
+                if rationale:
+                    sentence += f" Rationale: {rationale}."
+
+            spoken.append(sentence)
+
+        if not spoken:
+            spoken = [answer]
+
+        speech_text = " ".join(spoken)
+
+        digest = hashlib.sha256(
+            speech_text.encode("utf-8")
+        ).hexdigest()[:16]
+
+        progress_path = os.path.join(
+            os.environ.get("TEMP", "."),
+            f"hara_voice_{digest}.json"
+        )
+
+        start_location = 0
+
+        # Continue from the last saved position if this exact summary
+        # was previously stopped.
+        try:
+            if os.path.exists(progress_path):
+                with open(progress_path, "r", encoding="utf-8") as f:
+                    progress = json.load(f)
+
+                if (
+                    progress.get("text_hash")
+                    == hashlib.sha256(
+                        speech_text.encode("utf-8")
+                    ).hexdigest()
+                    and not progress.get("completed", False)
+                ):
+                    start_location = int(progress.get("location", 0))
+        except Exception:
+            start_location = 0
+
+        if start_location >= len(speech_text):
+            start_location = 0
+
+        try:
+            player_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "voice_player.py"
+            )
+
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    player_path,
+                    speech_text,
+                    str(start_location),
+                ],
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+
+            st.session_state["voice_process"] = process
+            st.session_state["voice_playing"] = True
+
+            if start_location > 0:
+                st.info("▶️ Resuming from where you stopped.")
+        except Exception as exc:
+            st.error(f"Voice playback failed: {exc}")
+
+
     def render_hara_scenarios(answer, quick=False):
         """Render Quick/Detailed HARA output in structured Markdown."""
 
@@ -874,6 +1027,35 @@ if "hara_answer" in st.session_state:
                 st.markdown(f"- **Engineering Evidence:** {evidence_value}")
 
             st.divider()
+
+    # Voice controls: read only the HARA summary, never the long evidence text.
+    col_voice, col_stop = st.columns(2)
+
+    with col_voice:
+        if st.button("🔊 Listen to Summary", key="listen_hara_summary"):
+            speak_hara_summary(
+                answer_text,
+                quick=summary_mode
+            )
+
+    with col_stop:
+        if st.button("⏹️ Stop Reading", key="stop_hara_summary"):
+            process = st.session_state.get("voice_process")
+            if process is not None and process.poll() is None:
+                try:
+                    process.terminate()
+                    process.wait(timeout=1)
+                except Exception:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+                st.session_state["voice_playing"] = False
+                st.success(
+                    "Voice playback stopped. Press Listen to resume from the last position."
+                )
+            else:
+                st.info("No voice playback is currently running.")
 
     render_hara_scenarios(
         answer_text,

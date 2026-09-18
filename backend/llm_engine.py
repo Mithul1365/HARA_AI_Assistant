@@ -14,16 +14,45 @@ def _evidence_snippet(evidence, index=0, limit=500):
 
 
 def _quick_hara(system, function, scenario, evidence):
-    """Fast, deterministic HARA candidate generation for Quick Summary.
+    """Fast HARA candidate generation using the user's item/function first.
 
-    Quick mode intentionally shows only the three core HARA fields.
-    Evidence remains available elsewhere in the UI and is not dumped here.
+    The uploaded evidence is supporting context only. Explicit user input
+    gets priority so a Body Safety document cannot accidentally trigger
+    the EV/BMS candidate set just because the PDF mentions batteries.
     """
     context = f"{system} {function} {scenario}".lower()
-    evidence_text = " ".join(str(x.get("text", "")) for x in evidence[:3]).lower()
+    evidence_text = " ".join(
+        str(x.get("text", "")) for x in evidence[:3]
+    ).lower()
 
-    if any(k in context or k in evidence_text for k in (
-        "bms", "battery", "pyro", "high-voltage", "high voltage", "ev"
+    # Detect the engineering domain from the user's actual item/function
+    # before looking at retrieved evidence.
+    if any(k in context for k in (
+        "body safety", "door safety", "vehicle door", "door status",
+        "door open", "door closed", "body electronics", "lighting"
+    )):
+        candidates = [
+            (
+                "Door status monitoring fails to detect an improperly closed door.",
+                "Unsafe door condition remains undetected.",
+                "Vehicle continues driving while a door is not properly closed.",
+            ),
+            (
+                "Door warning indication fails to alert the driver.",
+                "Driver is not informed about the door condition.",
+                "Vehicle operates while an improperly closed door remains unnoticed.",
+            ),
+            (
+                "Door status signal is incorrectly reported.",
+                "Incorrect door-closure information is provided.",
+                "Vehicle continues operation based on an incorrect door-closed status.",
+            ),
+        ]
+
+    elif any(k in context for k in (
+        "bms", "battery management", "battery pack", "pyro-fuse",
+        "pyrofuse", "high-voltage battery", "high voltage battery",
+        "electric vehicle", "ev"
     )):
         candidates = [
             (
@@ -42,6 +71,7 @@ def _quick_hara(system, function, scenario, evidence):
                 "High-voltage battery isolation is not achieved during a fault.",
             ),
         ]
+
     elif any(k in context for k in ("steering", "eps")):
         candidates = [
             (
@@ -60,6 +90,7 @@ def _quick_hara(system, function, scenario, evidence):
                 "A steering fault remains active without timely mitigation.",
             ),
         ]
+
     elif any(k in context for k in ("brake", "braking", "emb")):
         candidates = [
             (
@@ -76,6 +107,29 @@ def _quick_hara(system, function, scenario, evidence):
                 "Brake fault isolation or fallback fails.",
                 "Loss of the required safe braking state.",
                 "A brake fault persists without timely mitigation.",
+            ),
+        ]
+
+    # Only use evidence-based domain detection when the user did not
+    # provide enough domain-specific wording.
+    elif any(k in evidence_text for k in (
+        "door status", "door open", "door closed", "door warning"
+    )):
+        candidates = [
+            (
+                "Door status monitoring fails to detect an improperly closed door.",
+                "Unsafe door condition remains undetected.",
+                "Vehicle continues driving while a door is not properly closed.",
+            ),
+            (
+                "Door warning indication fails to alert the driver.",
+                "Driver is not informed about the door condition.",
+                "Vehicle operates while an improperly closed door remains unnoticed.",
+            ),
+            (
+                "Door status signal is incorrectly reported.",
+                "Incorrect door-closure information is provided.",
+                "Vehicle continues operation based on an incorrect door-closed status.",
             ),
         ]
     else:

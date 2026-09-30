@@ -1,13 +1,13 @@
-from common import *
+﻿from common import *
 
-init_page("HARA AI Assistant — Traceability")
-page_header("TRACEABILITY", "Traceability", "End-to-end HARA → ASIL → Safety Goal → FSR → TSR relationship.")
+init_page("HARA AI Assistant â€” Traceability")
+page_header("TRACEABILITY", "Traceability", "End-to-end HARA â†’ ASIL â†’ Safety Goal â†’ FSR â†’ TSR relationship.")
 
 # 10. TRACEABILITY MATRIX
 # =========================================================
 
 st.header(
-    "10. Traceability Matrix"
+    "Traceability Matrix"
 )
 
 st.write(
@@ -27,7 +27,7 @@ if not traceability_context_ready:
 
     st.caption(
         "Traceability Matrix will be available after "
-        "HARA → ASIL → Safety Goal → FSR → TSR generation."
+        "HARA â†’ ASIL â†’ Safety Goal â†’ FSR â†’ TSR generation."
     )
 
 else:
@@ -108,12 +108,12 @@ else:
                 "ASIL",
                 safety_goal_data.get(
                     "candidate_asil",
-                    st.session_state.get("candidate_asil", "—")
+                    st.session_state.get("candidate_asil", "â€”")
                 )
             )
 
         with summary_col3:
-            st.metric("Selected FSR", selected_fsr.get("id", "—"))
+            st.metric("Selected FSR", selected_fsr.get("id", "â€”"))
 
         with summary_col4:
             st.metric("TSR Links", len(tsr_results))
@@ -125,23 +125,23 @@ else:
 
         st.markdown(
             f"""
-            **HARA-001** — {traceability_candidate['malfunction']}
+            **HARA-001** â€” {traceability_candidate['malfunction']}
 
-            ↓
+            â†“
 
-            **ASIL {safety_goal_data.get('candidate_asil', '—')}**
+            **ASIL {safety_goal_data.get('candidate_asil', 'â€”')}**
 
-            ↓
+            â†“
 
-            **{safety_goal_data.get('id', 'SG-001')}** — "
+            **{safety_goal_data.get('id', 'SG-001')}** â€” "
             f"{safety_goal_data.get('safety_goal', '')}
 
-            ↓
+            â†“
 
-            **{selected_fsr.get('id', 'FSR-001')}** — "
+            **{selected_fsr.get('id', 'FSR-001')}** â€” "
             f"{selected_fsr.get('requirement', '')}
 
-            ↓
+            â†“
 
             **Derived Technical Safety Requirements**
             """
@@ -178,7 +178,7 @@ else:
             )
 
         with st.expander(
-            "🔗 Engineering Traceability Details",
+            "ðŸ”— Engineering Traceability Details",
             expanded=False
         ):
 
@@ -199,7 +199,7 @@ else:
 
             st.write(
                 f"**Candidate ASIL:** "
-                f"{safety_goal_data.get('candidate_asil', '—')}"
+                f"{safety_goal_data.get('candidate_asil', 'â€”')}"
             )
 
             st.write(
@@ -209,7 +209,7 @@ else:
 
             st.write(
                 f"**Selected FSR ID:** "
-                f"{selected_fsr.get('id', '—')}"
+                f"{selected_fsr.get('id', 'â€”')}"
             )
 
             st.write(
@@ -326,11 +326,11 @@ def create_audit_report_pdf(history):
     summary_data = [
         ["Recorded Events", str(len(history))],
         ["Event Types", str(event_types)],
-        ["HARA", str(latest.get("HARA ID", "—"))],
-        ["ASIL", str(latest.get("ASIL", "—"))],
-        ["Safety Goal", str(latest.get("Safety Goal ID", "—"))],
-        ["FSR", str(latest.get("FSR ID", "—"))],
-        ["TSRs", str(latest.get("TSR IDs", "—"))],
+        ["HARA", str(latest.get("HARA ID", "â€”"))],
+        ["ASIL", str(latest.get("ASIL", "â€”"))],
+        ["Safety Goal", str(latest.get("Safety Goal ID", "â€”"))],
+        ["FSR", str(latest.get("FSR ID", "â€”"))],
+        ["TSRs", str(latest.get("TSR IDs", "â€”"))],
     ]
 
     summary_table = Table(
@@ -413,3 +413,4 @@ def create_audit_report_pdf(history):
 
 
 # =========================================================
+

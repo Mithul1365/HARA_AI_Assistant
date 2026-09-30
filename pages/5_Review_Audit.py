@@ -1,13 +1,13 @@
-from common import *
+﻿from common import *
 
-init_page("HARA AI Assistant — Review & Audit")
+init_page("HARA AI Assistant â€” Review & Audit")
 page_header("GOVERNANCE", "Review & Audit", "Engineering review, verification evidence and decision history.")
 
 # 11. DECISION HISTORY / AUDIT EVIDENCE
 # =========================================================
 
 st.header(
-    "11. Decision History / Audit Evidence"
+    "Decision History / Audit Evidence"
 )
 
 st.write(
@@ -43,7 +43,7 @@ else:
     with audit_col3:
         latest_event = audit_history[0].get(
             "event",
-            "—"
+            "â€”"
         )
         st.metric("Latest Action", latest_event)
 
@@ -105,7 +105,7 @@ else:
     audit_report_pdf = create_audit_report_pdf(audit_history)
 
     st.download_button(
-        "📄 Download Audit Report (PDF)",
+        "ðŸ“„ Download Audit Report (PDF)",
         data=audit_report_pdf,
         file_name="HARA_AI_Assistant_Audit_Report.pdf",
         mime="application/pdf",
@@ -127,7 +127,7 @@ else:
         )
 
     if st.button(
-        "🗑️ Clear Audit History",
+        "ðŸ—‘ï¸ Clear Audit History",
         key="clear_audit_history_button"
     ):
         clear_audit_history(AUDIT_HISTORY_PATH)
@@ -145,7 +145,7 @@ st.info(
 # =========================================================
 
 st.header(
-    "12. Engineering Review / Approval Workflow"
+    "Engineering Review / Approval Workflow"
 )
 
 st.write(
@@ -203,7 +203,7 @@ if not review_artifacts:
 else:
 
     review_labels = [
-        f"{artifact_type} — {artifact_id}"
+        f"{artifact_type} â€” {artifact_id}"
         for artifact_type, artifact_id, _ in review_artifacts
     ]
 
@@ -225,7 +225,7 @@ else:
     )
 
     st.markdown(
-        f"### {selected_review_type} — {selected_review_id}"
+        f"### {selected_review_type} â€” {selected_review_id}"
     )
 
     st.write(
@@ -238,8 +238,8 @@ else:
             f"{latest_review.get('decision', 'Pending Review')}"
         )
         st.caption(
-            f"Last reviewed by {latest_review.get('reviewer_name', '—')} "
-            f"at {latest_review.get('timestamp_utc', '—')}"
+            f"Last reviewed by {latest_review.get('reviewer_name', 'â€”')} "
+            f"at {latest_review.get('timestamp_utc', 'â€”')}"
         )
         if latest_review.get("comment"):
             st.caption(
@@ -263,9 +263,9 @@ else:
     review_decision = st.radio(
         "Engineering review decision",
         [
-            "Reviewed — Accept for engineering use",
-            "Reviewed — Return for revision",
-            "Reviewed — Reject",
+            "Reviewed â€” Accept for engineering use",
+            "Reviewed â€” Return for revision",
+            "Reviewed â€” Reject",
         ],
         horizontal=True,
         key="review_decision_input",
@@ -278,7 +278,7 @@ else:
     )
 
     if st.button(
-        "📝 Record Engineering Review Decision",
+        "ðŸ“ Record Engineering Review Decision",
         type="primary",
         key="record_engineering_review_button",
     ):
@@ -354,7 +354,7 @@ else:
 
         overview_rows.append(
             {
-                "Artifact": f"{artifact_type} — {artifact_id}",
+                "Artifact": f"{artifact_type} â€” {artifact_id}",
                 "Status": (
                     latest.get("decision", "Pending Review")
                     if latest
@@ -380,7 +380,7 @@ else:
     )
 
     st.download_button(
-        "📄 Export Review Decisions (JSON)",
+        "ðŸ“„ Export Review Decisions (JSON)",
         data=json.dumps(
             review_decisions,
             indent=2,
@@ -391,7 +391,7 @@ else:
     )
 
     if st.button(
-        "🗑️ Clear Review Decisions",
+        "ðŸ—‘ï¸ Clear Review Decisions",
         key="clear_review_decisions_button",
     ):
         clear_review_decisions(REVIEW_DECISIONS_PATH)
@@ -405,7 +405,7 @@ else:
 # 13. VERIFICATION EVIDENCE MAPPING
 # =========================================================
 
-st.header("13. Verification Evidence Mapping")
+st.header("Verification Evidence Mapping")
 
 st.write(
     "Record verification evidence and link it to a generated safety "
@@ -447,7 +447,7 @@ if not verification_options:
     )
 else:
     requirement_labels = [
-        f"{kind} — {artifact_id}"
+        f"{kind} â€” {artifact_id}"
         for kind, artifact_id in verification_options
     ]
 
@@ -504,7 +504,7 @@ else:
     )
 
     if st.button(
-        "🔗 Record Verification Evidence",
+        "ðŸ”— Record Verification Evidence",
         type="primary",
         key="record_verification_evidence",
     ):
@@ -525,7 +525,7 @@ else:
                 artifact_name=artifact_name,
                 verification_method=verification_method,
                 result=verification_result,
-                linked_requirement=f"{selected_kind} — {selected_id}",
+                linked_requirement=f"{selected_kind} â€” {selected_id}",
                 evidence_reference=evidence_reference,
                 notes=verification_notes,
             )
@@ -585,7 +585,7 @@ if verification_records:
     )
 
     st.download_button(
-        "📄 Export Verification Register (JSON)",
+        "ðŸ“„ Export Verification Register (JSON)",
         data=json.dumps(
             verification_records,
             indent=2,
@@ -596,7 +596,7 @@ if verification_records:
     )
 
     if st.button(
-        "🗑️ Clear Verification Register",
+        "ðŸ—‘ï¸ Clear Verification Register",
         key="clear_verification_register",
     ):
         clear_verification_records(VERIFICATION_RECORDS_PATH)
@@ -608,3 +608,4 @@ st.info(get_verification_note())
 
 
 # =========================================================
+

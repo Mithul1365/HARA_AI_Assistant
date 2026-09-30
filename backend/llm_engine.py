@@ -1,4 +1,4 @@
-import json
+﻿import json
 import time
 import urllib.request
 
@@ -182,7 +182,7 @@ def ask_qwen(prompt, summary_mode=False):
             "Maximum about 20 words per field. "
             "No introduction, no conclusion, no Evidence section."
         )
-        max_tokens, num_ctx = 100, 1024
+        max_tokens, num_ctx = 220, 1536
 
     data = {
         "model": MODEL_NAME,
@@ -233,7 +233,7 @@ def _detailed_hara(system, function, scenario, evidence):
             source = item.get("source", "Engineering Document")
             page = item.get("page", "?")
             excerpt = " ".join(str(item.get("text", "")).split())[:320]
-            ev = f"{source}, Page {page} — {excerpt}"
+            ev = f"{source}, Page {page} â€” {excerpt}"
         else:
             ev = "No retrieved engineering evidence available."
 
@@ -250,15 +250,138 @@ def _detailed_hara(system, function, scenario, evidence):
 
 
 def analyze_with_qwen(system, function, scenario, evidence, summary_mode=False):
-    """Return the correct HARA format for the selected analysis mode."""
+    """Generate HARA candidates with Qwen3 and keep a deterministic fallback."""
 
     start_time = time.time()
 
-    if summary_mode:
-        result = _quick_hara(system, function, scenario, evidence)
-        print(f"[HARA] quick local generation total={time.time() - start_time:.3f}s")
+    evidence_lines = []
+
+    for i, item in enumerate(evidence[:5], 1):
+        source = item.get("source", "Engineering Document")
+        page = item.get("page", "?")
+        text = " ".join(str(item.get("text", "")).split())[:700]
+
+        evidence_lines.append(
+            f"Evidence {i} | Source: {source} | Page: {page}\n{text}"
+        )
+
+    evidence_text = "\n\n".join(evidence_lines)
+
+    prompt = f"""
+You are an automotive functional-safety engineering assistant.
+
+Generate HARA candidates only for the exact automotive system and scenario
+provided below.
+
+SYSTEM / ITEM:
+{system}
+
+INTENDED FUNCTION:
+{function}
+
+OPERATIONAL SCENARIO:
+{scenario}
+
+RETRIEVED ENGINEERING EVIDENCE:
+{evidence_text}
+
+STRICT RULES:
+1. Stay strictly within the provided System, Function and Scenario.
+2. Use the retrieved engineering evidence as supporting context.
+3. Do not introduce unrelated domains or non-automotive examples.
+4. Do not invent evidence, sources, page numbers, measurements, or facts.
+5. Generate exactly 3 plausible HARA candidates.
+6. Each candidate must contain:
+   Potential Malfunction:
+   Potential Hazard:
+   Hazardous Event:
+   Rationale:
+7. Keep every field concise and engineering-focused.
+8. Do not assign ASIL.
+9. Do not claim ISO 26262 compliance or safety approval.
+10. Return only the three candidates.
+"""
+
+    try:
+        answer = ask_qwen(
+            prompt,
+            summary_mode=summary_mode
+        )
+
+        lower = answer.lower()
+
+        invalid_markers = [
+            "could not be reached",
+            "did not return a response",
+            "kitchen",
+            "bathroom",
+            "household",
+        ]
+
+        # Validate that Qwen returned three complete HARA candidates.
+        blocks = [
+            block.strip()
+            for block in answer.split("\n\n")
+            if block.strip()
+        ]
+
+        required_fields = [
+            "potential malfunction:",
+            "potential hazard:",
+            "hazardous event:",
+            "rationale:",
+        ]
+
+        complete_candidates = 0
+
+        for block in blocks:
+            block_lower = block.lower()
+
+            if all(
+                field in block_lower
+                for field in required_fields
+            ):
+                complete_candidates += 1
+
+        if (
+            not answer.strip()
+            or any(marker in lower for marker in invalid_markers)
+            or complete_candidates != 3
+        ):
+            raise ValueError(
+                "Qwen returned an incomplete or invalid HARA response."
+            )
+
+        print(
+            f"[HARA] Qwen3 generation total="
+            f"{time.time() - start_time:.2f}s"
+        )
+
+        return answer
+
+    except Exception as exc:
+        print(f"[HARA] Qwen fallback: {exc}")
+
+        if summary_mode:
+            result = _quick_hara(
+                system,
+                function,
+                scenario,
+                evidence
+            )
+        else:
+            result = _detailed_hara(
+                system,
+                function,
+                scenario,
+                evidence
+            )
+
+        print(
+            f"[HARA] deterministic fallback total="
+            f"{time.time() - start_time:.3f}s"
+        )
+
         return result
 
-    result = _detailed_hara(system, function, scenario, evidence)
-    print(f"[HARA] detailed local generation total={time.time() - start_time:.3f}s")
-    return result
+

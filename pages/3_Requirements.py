@@ -1,13 +1,13 @@
-from common import *
+﻿from common import *
 
-init_page("HARA AI Assistant — Requirements")
+init_page("HARA AI Assistant â€” Requirements")
 page_header("SAFETY REQUIREMENTS", "Requirements", "Safety Goal, FSR, TSR and deterministic requirement quality checks.")
 
 # 7. FUNCTIONAL SAFETY REQUIREMENTS (FSR)
 # =========================================================
 
 st.header(
-    "7. Functional Safety Requirements (FSR)"
+    "Functional Safety Requirements (FSR)"
 )
 
 st.write(
@@ -26,7 +26,7 @@ fsr_context_ready = (
 if not fsr_context_ready:
 
     st.warning(
-        "Complete S/E/C → Candidate ASIL → Safety Goal first. "
+        "Complete S/E/C â†’ Candidate ASIL â†’ Safety Goal first. "
         "FSRs will then be available."
     )
 
@@ -84,7 +84,7 @@ else:
             )
 
         if st.button(
-            "🛡️ Generate Functional Safety Requirements",
+            "ðŸ›¡ï¸ Generate Functional Safety Requirements",
             type="primary"
         ):
 
@@ -178,7 +178,7 @@ else:
                         )
 
                     with st.expander(
-                        "🔗 Traceability Details"
+                        "ðŸ”— Traceability Details"
                     ):
 
                         st.write(
@@ -219,7 +219,7 @@ else:
 # =========================================================
 
 st.header(
-    "8. Technical Safety Requirements (TSR)"
+    "Technical Safety Requirements (TSR)"
 )
 
 st.write(
@@ -238,7 +238,7 @@ tsr_context_ready = (
 
 if not tsr_context_ready:
     st.warning(
-        "Complete S/E/C → Candidate ASIL → Safety Goal → FSR first. "
+        "Complete S/E/C â†’ Candidate ASIL â†’ Safety Goal â†’ FSR first. "
         "TSRs will then be available."
     )
 else:
@@ -248,7 +248,7 @@ else:
     st.markdown("### Select FSR for Technical Decomposition")
 
     fsr_labels = [
-        f"{fsr['id']} — {fsr['requirement']}"
+        f"{fsr['id']} â€” {fsr['requirement']}"
         for fsr in fsr_results
     ]
 
@@ -282,7 +282,7 @@ else:
             )
 
         if st.button(
-            "⚙️ Generate Technical Safety Requirements",
+            "âš™ï¸ Generate Technical Safety Requirements",
             type="primary",
             key="generate_tsr_button"
         ):
@@ -363,7 +363,7 @@ else:
                             f"**Linked FSR:** {selected_fsr['id']}"
                         )
 
-                    with st.expander("🔗 Traceability Details"):
+                    with st.expander("ðŸ”— Traceability Details"):
                         st.write(
                             f"**System:** {tsr['system']}"
                         )
@@ -395,7 +395,7 @@ else:
 # =========================================================
 
 st.header(
-    "9. Requirement Quality Checks"
+    "Requirement Quality Checks"
 )
 
 st.write(
@@ -488,7 +488,7 @@ else:
             with st.container(border=True):
 
                 st.markdown(
-                    f"### {result['id']} — {result['overall']}"
+                    f"### {result['id']} â€” {result['overall']}"
                 )
 
                 st.write(
@@ -511,7 +511,7 @@ else:
                 )
 
         if st.button(
-            "🧾 Record Quality Check in Audit History",
+            "ðŸ§¾ Record Quality Check in Audit History",
             key="record_quality_audit_button"
         ):
             log_audit_event(
@@ -545,3 +545,4 @@ else:
 
 
 # =========================================================
+

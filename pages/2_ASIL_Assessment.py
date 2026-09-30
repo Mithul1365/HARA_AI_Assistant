@@ -1,13 +1,20 @@
-from common import *
+﻿from common import *
 
-init_page("HARA AI Assistant — ASIL Assessment")
+init_page("HARA AI Assistant - ASIL Assessment")
 page_header("FUNCTIONAL SAFETY", "ASIL Assessment", "S/E/C assessment and candidate ASIL decision support.")
+
+# Carry forward Item Definition data from the previous page.
+system = st.session_state.get("system", "")
+function = st.session_state.get("function", "")
+scenario = st.session_state.get("scenario", "")
+operating_conditions = st.session_state.get("operating_conditions", "")
+
 
 # 5. S / E / C ASSESSMENT
 # =========================================================
 
 st.header(
-    "5. S / E / C Assessment"
+    "S / E / C Assessment"
 )
 
 st.write(
@@ -35,16 +42,16 @@ def extract_hara_candidates(hara_text):
     # Scenario 1:, bullets, numbering, or markdown.
     current = {"malfunction": "", "hazard": ""}
     label_re = {
-        "malfunction": re.compile(r"^(?:[-*•\s\d\.)]+)?(?:potential\s+)?malfunction\s*:\s*(.+)$", re.I),
-        "hazard": re.compile(r"^(?:[-*•\s\d\.)]+)?(?:potential\s+)?hazard\s*:\s*(.+)$", re.I),
-        "event": re.compile(r"^(?:[-*•\s\d\.)]+)?hazardous\s+event\s*:\s*(.+)$", re.I),
+        "malfunction": re.compile(r"^(?:[-*-\s\d\.)]+)?(?:potential\s+)?malfunction\s*:\s*(.+)$", re.I),
+        "hazard": re.compile(r"^(?:[-*-\s\d\.)]+)?(?:potential\s+)?hazard\s*:\s*(.+)$", re.I),
+        "event": re.compile(r"^(?:[-*-\s\d\.)]+)?hazardous\s+event\s*:\s*(.+)$", re.I),
     }
 
     for raw in lines:
         line = raw.strip()
         # Remove a leading Scenario N: marker but keep the rest of the line.
         line = re.sub(r"^scenario\s*\d+\s*:\s*", "", line, flags=re.I)
-        line = re.sub(r"^[\s\d\.\)\-•*]+", "", line).strip()
+        line = re.sub(r"^[\s\d\.\)\--*]+", "", line).strip()
 
         m = label_re["malfunction"].match(line)
         if m:
@@ -63,13 +70,13 @@ def extract_hara_candidates(hara_text):
             })
             current = {"malfunction": "", "hazard": ""}
 
-    # Support compact one-line chains: M -> H -> HE or M → H → HE.
+    # Support compact one-line chains: M -> H -> HE or M -> H -> HE.
     if len(candidates) < 3:
         for raw in lines:
             line = re.sub(r"^scenario\s*\d+\s*:\s*", "", raw, flags=re.I)
-            line = re.sub(r"^[\s\d\.\)\-•*]+", "", line).strip()
-            if "→" in line:
-                parts = [p.strip() for p in line.split("→") if p.strip()]
+            line = re.sub(r"^[\s\d\.\)\--*]+", "", line).strip()
+            if "->" in line:
+                parts = [p.strip() for p in line.split("->") if p.strip()]
             elif "->" in line:
                 parts = [p.strip() for p in line.split("->") if p.strip()]
             else:
@@ -229,8 +236,8 @@ else:
 
         candidate_labels.append(
             f"{rank}. [{item['priority']}] "
-            f"{candidate['malfunction']} → "
-            f"{candidate['hazard']} → "
+            f"{candidate['malfunction']} -> "
+            f"{candidate['hazard']} -> "
             f"{candidate['hazardous_event']}"
         )
 
@@ -421,7 +428,7 @@ if hara_candidates:
     # =====================================================
 
     if st.button(
-        "🧮 Calculate Candidate ASIL",
+        " Calculate Candidate ASIL",
         disabled=not se_assessment_complete
     ):
 
@@ -509,7 +516,7 @@ if hara_candidates:
     if asil_is_current:
 
         st.subheader(
-            "🎯 Candidate ASIL Recommendation"
+            " Candidate ASIL Recommendation"
         )
 
         asil_col1, asil_col2 = st.columns(
@@ -570,7 +577,7 @@ if hara_candidates:
         # =================================================
 
         st.header(
-            "6. Safety Goal"
+            "Safety Goal"
         )
 
         st.write(
@@ -611,7 +618,7 @@ if hara_candidates:
             )
 
         if st.button(
-            "🎯 Generate Safety Goal",
+            " Generate Safety Goal",
             type="primary"
         ):
 
@@ -676,7 +683,7 @@ if hara_candidates:
             ]
 
             st.subheader(
-                "🎯 Candidate Safety Goal"
+                " Candidate Safety Goal"
             )
 
             with st.container(border=True):
@@ -713,6 +720,21 @@ if hara_candidates:
                 get_safety_goal_review_note()
             )
 
+            st.divider()
+
+            st.success(
+                "Safety Goal completed. Continue to the Requirements page."
+            )
+
+            if st.button(
+                "Continue to Requirements",
+                type="primary",
+                key="continue_to_requirements"
+            ):
+                st.switch_page(
+                    "pages/3_Requirements.py"
+                )
+
     else:
 
         st.info(
@@ -722,3 +744,4 @@ if hara_candidates:
 
 
 # =========================================================
+

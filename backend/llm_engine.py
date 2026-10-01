@@ -3,151 +3,157 @@ import time
 import urllib.request
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "qwen3:8b"
+MODEL_NAME = "qwen3:4b"
 
 
 def _evidence_snippet(evidence, index=0, limit=500):
     if not evidence:
         return "Engineering evidence not available."
     item = evidence[min(index, len(evidence) - 1)]
-    return str(item.get("text", "")).strip()[:limit]
+    return str(item.get("text", "")).strip() if "user-provided item definition" in str(item.get("source", "")).lower() else str(item.get("text", "")).strip()[:limit]
 
 
 def _quick_hara(system, function, scenario, evidence):
-    """Fast HARA candidate generation using the user's item/function first.
-
-    The uploaded evidence is supporting context only. Explicit user input
-    gets priority so a Body Safety document cannot accidentally trigger
-    the EV/BMS candidate set just because the PDF mentions batteries.
-    """
+    """Generate fast, function-specific HARA candidates from the item definition."""
     context = f"{system} {function} {scenario}".lower()
-    evidence_text = " ".join(
-        str(x.get("text", "")) for x in evidence[:3]
-    ).lower()
 
-    # Detect the engineering domain from the user's actual item/function
-    # before looking at retrieved evidence.
-    if any(k in context for k in (
-        "body safety", "door safety", "vehicle door", "door status",
-        "door open", "door closed", "body electronics", "lighting"
-    )):
-        candidates = [
-            (
-                "Door status monitoring fails to detect an improperly closed door.",
-                "Unsafe door condition remains undetected.",
-                "Vehicle continues driving while a door is not properly closed.",
-            ),
-            (
-                "Door warning indication fails to alert the driver.",
-                "Driver is not informed about the door condition.",
-                "Vehicle operates while an improperly closed door remains unnoticed.",
-            ),
-            (
-                "Door status signal is incorrectly reported.",
-                "Incorrect door-closure information is provided.",
-                "Vehicle continues operation based on an incorrect door-closed status.",
-            ),
-        ]
+    # BODY / BCM / CENTRAL DOOR LOCKING
+    if (
+        any(k in context for k in (
+            "body control module", "body control", "bcm",
+            "central door locking", "central locking",
+            "door locking", "door lock", "vehicle door",
+        ))
+        or any(k in context for k in ("door", "locking"))
+    ):
+        if any(k in context for k in (
+            "fails to keep the doors locked",
+            "fail to keep the doors locked",
+            "doors remain unlocked",
+            "door remains unlocked",
+            "fails to lock",
+            "cannot lock",
+            "unable to lock",
+            "locking function fails",
+        )):
+            candidates = [
+                (
+                    "Central door locking fails to keep one or more doors locked.",
+                    "A vehicle door remains unsecured during vehicle motion.",
+                    "An occupant is exposed to an unsecured door condition while the vehicle is moving.",
+                ),
+                (
+                    "Door-lock status is incorrectly reported as locked.",
+                    "An unlocked door condition remains undetected.",
+                    "The vehicle continues moving while the occupant or driver believes the door is secured.",
+                ),
+                (
+                    "Door-locking failure is not detected or indicated to the driver.",
+                    "The driver is not warned about an unsecured door.",
+                    "The vehicle continues operation with an unsecured door condition that is not timely recognized.",
+                ),
+            ]
+        else:
+            candidates = [
+                (
+                    "Central door locking command is not executed as intended.",
+                    "One or more doors are not secured when required.",
+                    "The vehicle operates with an unintended unsecured door condition.",
+                ),
+                (
+                    "Door-lock status is incorrectly detected or reported.",
+                    "The actual door security state is unknown or misrepresented.",
+                    "The driver or occupants rely on an incorrect door-lock status during vehicle operation.",
+                ),
+                (
+                    "Door-locking fault is not detected or indicated.",
+                    "An unsafe door condition remains without timely warning.",
+                    "Vehicle operation continues while the door condition is not recognized.",
+                ),
+            ]
 
+    # EV / BATTERY
     elif any(k in context for k in (
         "bms", "battery management", "battery pack", "pyro-fuse",
         "pyrofuse", "high-voltage battery", "high voltage battery",
-        "electric vehicle", "ev"
+        "electric vehicle",
     )):
         candidates = [
             (
                 "BMS fails to detect abnormal battery temperature.",
-                "Thermal runaway in the high-voltage battery pack.",
-                "Battery overheating progresses to a potential thermal event or fire.",
+                "Battery thermal conditions become unsafe.",
+                "Battery overheating progresses toward a potential thermal event.",
             ),
             (
-                "High-voltage battery isolation or pyro-fuse disconnection fails when required.",
+                "High-voltage battery isolation fails when required.",
                 "Unsafe high-voltage energy remains connected.",
-                "Battery remains connected during a fault or collision event.",
+                "The battery remains electrically connected during a fault or collision event.",
             ),
             (
-                "Pyro-fuse trigger or energy-reservoir circuit fails.",
-                "Battery disconnection is unavailable when required.",
-                "High-voltage battery isolation is not achieved during a fault.",
+                "Battery fault detection or protection fails.",
+                "Required battery protective action is unavailable.",
+                "A hazardous battery condition persists without timely mitigation.",
             ),
         ]
 
+    # STEERING
     elif any(k in context for k in ("steering", "eps")):
         candidates = [
             (
-                "Steering assistance fails.",
-                "Reduced ability to control the vehicle path.",
-                "Driver has difficulty maintaining the intended vehicle path.",
+                "Steering assistance fails when requested.",
+                "Required steering capability is reduced or unavailable.",
+                "The driver has difficulty maintaining the intended vehicle path.",
             ),
             (
                 "Steering assistance is applied unintentionally.",
-                "Unexpected vehicle directional response.",
+                "Unexpected steering response occurs.",
                 "Vehicle trajectory changes without the intended driver command.",
             ),
             (
-                "EPS control or communication fails.",
-                "Required steering safety response is unavailable.",
+                "Steering control or communication fails.",
+                "The required steering safety response is unavailable.",
                 "A steering fault remains active without timely mitigation.",
             ),
         ]
 
+    # BRAKING
     elif any(k in context for k in ("brake", "braking", "emb")):
         candidates = [
             (
                 "Brake actuation fails when braking is requested.",
-                "Insufficient braking capability.",
-                "Vehicle deceleration is lower than required.",
+                "Required braking capability is reduced or unavailable.",
+                "Vehicle deceleration is lower than required during a braking event.",
             ),
             (
                 "Brake control information is incorrect.",
-                "Incorrect brake response.",
-                "Vehicle does not achieve the intended braking response.",
+                "The commanded braking response is incorrect.",
+                "The vehicle does not achieve the intended braking response.",
             ),
             (
                 "Brake fault isolation or fallback fails.",
-                "Loss of the required safe braking state.",
+                "The required safe braking state is unavailable.",
                 "A brake fault persists without timely mitigation.",
             ),
         ]
 
-    # Only use evidence-based domain detection when the user did not
-    # provide enough domain-specific wording.
-    elif any(k in evidence_text for k in (
-        "door status", "door open", "door closed", "door warning"
-    )):
-        candidates = [
-            (
-                "Door status monitoring fails to detect an improperly closed door.",
-                "Unsafe door condition remains undetected.",
-                "Vehicle continues driving while a door is not properly closed.",
-            ),
-            (
-                "Door warning indication fails to alert the driver.",
-                "Driver is not informed about the door condition.",
-                "Vehicle operates while an improperly closed door remains unnoticed.",
-            ),
-            (
-                "Door status signal is incorrectly reported.",
-                "Incorrect door-closure information is provided.",
-                "Vehicle continues operation based on an incorrect door-closed status.",
-            ),
-        ]
+    # GENERIC FUNCTION-AWARE FALLBACK
     else:
+        function_text = function.strip() or "the intended vehicle function"
         candidates = [
             (
-                "Safety-relevant monitoring fails to detect a fault.",
-                "Unsafe operating condition remains undetected.",
-                "Vehicle continues operation while a hazardous condition is present.",
+                f"{function_text} fails to perform its intended function.",
+                "The intended function becomes unavailable during the specified operation.",
+                "The vehicle remains in a potentially hazardous operating condition.",
             ),
             (
-                "Safety-relevant control fails to execute the required response.",
-                "Required protective action is unavailable.",
-                "The hazardous condition continues without timely mitigation.",
+                f"{function_text} provides an incorrect or unintended response.",
+                "The vehicle receives an incorrect functional response.",
+                "Vehicle behavior deviates from the intended operating condition.",
             ),
             (
-                "Safety-relevant communication or diagnosis fails.",
-                "Fault information or safety commands are unavailable.",
-                "A hazardous condition is not detected or controlled in time.",
+                f"A fault affecting {function_text.lower()} is not detected in time.",
+                "The resulting unsafe condition remains unrecognized.",
+                "Vehicle operation continues while the fault is present.",
             ),
         ]
 
@@ -231,9 +237,24 @@ def _detailed_hara(system, function, scenario, evidence):
         if evidence_items:
             item = evidence_items[(i - 1) % len(evidence_items)]
             source = item.get("source", "Engineering Document")
-            page = item.get("page", "?")
-            excerpt = " ".join(str(item.get("text", "")).split())[:320]
-            ev = f"{source}, Page {page} â€” {excerpt}"
+            page = item.get("page", None)
+            raw_text = str(item.get("text", "")).strip()
+
+            # User-provided item definitions must be shown completely.
+            # Retrieved PDF evidence is shown in full so engineering context is not lost.
+            is_user_definition = (
+                "user-provided item definition" in source.lower()
+                or "engineer-provided item definition" in source.lower()
+            )
+
+            if is_user_definition:
+                formatted_text = raw_text
+                page_label = "Not applicable"
+            else:
+                formatted_text = " ".join(raw_text.split())
+                page_label = page if page not in (None, "", "—", "-") else "Not available"
+
+            ev = f"{source}, Page {page_label} — {formatted_text}"
         else:
             ev = "No retrieved engineering evidence available."
 
@@ -242,7 +263,7 @@ def _detailed_hara(system, function, scenario, evidence):
             f"Potential Malfunction: {fields.get('malfunction', '')}\n"
             f"Potential Hazard: {fields.get('hazard', '')}\n"
             f"Hazardous Event: {fields.get('hazardous event', '')}\n"
-            f"Rationale: This candidate is supported by the system function, operational scenario, and retrieved engineering evidence.\n"
+            f"Rationale: The malfunction is directly related to the stated function and operating scenario; retrieved evidence is supporting context.\n"
             f"Engineering Evidence: {ev}"
         )
 
@@ -383,5 +404,10 @@ STRICT RULES:
         )
 
         return result
+
+    result = _detailed_hara(system, function, scenario, evidence)
+    print(f"[HARA] detailed local generation total={time.time() - start_time:.3f}s")
+    return result
+
 
 

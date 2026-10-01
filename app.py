@@ -4,10 +4,42 @@ import hashlib
 import pickle
 import json
 import streamlit as st
-import pyttsx3
 import subprocess
 import sys
+import time
 from io import BytesIO
+
+
+def clean_display_text(text):
+    """Fix common PDF UTF-8/Windows-1252 mojibake before displaying text."""
+    if text is None:
+        return ""
+
+    replacements = {
+        "â€”": "—",
+        "â€“": "–",
+        "â€˜": "‘",
+        "â€™": "’",
+        "â€œ": "“",
+        "â€": "”",
+        "â€¦": "…",
+        "Â®": "®",
+        "Â©": "©",
+        "Â°": "°",
+        "Â±": "±",
+        "Âµ": "µ",
+        "Â": "",
+        "Ã—": "×",
+        "Ã·": "÷",
+        "Ã": "",
+    }
+
+    cleaned = str(text)
+    for bad, good in replacements.items():
+        cleaned = cleaned.replace(bad, good)
+
+    return cleaned
+
 from backend.llm_engine import analyze_with_qwen
 def extract_text_from_pdf(*args, **kwargs):
     from backend.document_processor import extract_text_from_pdf as _extract
@@ -71,6 +103,108 @@ def create_vector_store(*args, **kwargs):
 def search_documents(*args, **kwargs):
     from rag.vector_store import search_documents as _search_documents
     return _search_documents(*args, **kwargs)
+
+
+
+def _normalize_for_lexical(text):
+    """Fast, dependency-free normalization for uploaded-document HARA retrieval."""
+    text = str(text or "").lower()
+    replacements = {
+        "bcm": " body control module ",
+        "body-control-module": " body control module ",
+        "door-lock": " door lock ",
+        "doorlocking": " door locking ",
+        "central-locking": " central locking ",
+        "central-lock": " central lock ",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def lexical_search_uploaded_document(query, chunks, top_k=5):
+    """
+    Very fast retrieval for the uploaded PDF.
+
+    HARA does not need semantic embeddings for a small uploaded document:
+    exact automotive phrases and token overlap are enough to avoid the
+    30-60 second SentenceTransformer cold start.
+    """
+    query_norm = _normalize_for_lexical(query)
+    query_tokens = {
+        t for t in query_norm.split()
+        if len(t) >= 3 and t not in {
+            "the", "and", "for", "with", "that", "this", "from",
+            "into", "while", "when", "where", "what", "which",
+            "their", "there", "have", "has", "are", "was", "were",
+            "been", "being", "will", "would", "could", "should",
+            "can", "may", "must", "system", "function", "vehicle",
+            "operation", "operating", "condition", "identify",
+            "relevant", "engineering", "evidence", "automotive",
+        }
+    }
+
+    phrase_terms = [
+        phrase for phrase in (
+            "body control module",
+            "central door locking",
+            "door locking",
+            "door lock",
+            "doors locked",
+            "vehicle occupants",
+        )
+        if phrase in query_norm
+    ]
+
+    scored = []
+
+    for chunk in chunks or []:
+        raw = str(chunk.get("text", "") or "")
+        norm = _normalize_for_lexical(raw)
+        if not norm:
+            continue
+
+        tokens = set(norm.split())
+        overlap = len(query_tokens & tokens)
+
+        phrase_hits = sum(
+            1 for phrase in phrase_terms
+            if phrase in norm
+        )
+
+        # Strongly prioritize exact automotive terminology.
+        score = (
+            overlap / max(len(query_tokens), 1) * 0.70
+            + min(phrase_hits, 3) * 0.25
+        )
+
+        # Small bonus when the document chunk contains the main item.
+        if "body control module" in norm and "body control module" in query_norm:
+            score += 0.25
+        if "door locking" in norm and "door locking" in query_norm:
+            score += 0.30
+        if "central door locking" in norm and "central door locking" in query_norm:
+            score += 0.40
+
+        if score > 0:
+            scored.append((score, chunk))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+
+    results = []
+    for score, chunk in scored[:top_k]:
+        item = dict(chunk)
+        item["score"] = round(float(score), 4)
+        results.append(item)
+
+    # Do not return generic chunks just because they have a weak
+    # semantic similarity. HARA should fail safely when the uploaded
+    # document has no useful lexical evidence.
+    if results and results[0]["score"] < 0.20:
+        return []
+
+    return results
 
 
 def load_saved_knowledge_base_index():
@@ -182,6 +316,15 @@ if uploaded_file is not None:
         "ðŸ“– Read Document"
     ):
 
+        # -------------------------------------------------
+        # READ-DOCUMENT PERFORMANCE TIMING
+        # -------------------------------------------------
+        # These measurements help identify which stage is
+        # responsible for the document-processing delay.
+        read_start = time.perf_counter()
+
+        extract_start = time.perf_counter()
+
         with st.spinner(
             "Reading engineering PDF..."
         ):
@@ -189,6 +332,12 @@ if uploaded_file is not None:
             pages = extract_text_from_pdf(
                 uploaded_file
             )
+
+        extract_time = time.perf_counter() - extract_start
+
+        print(
+            f"[TIMING] pdf_extraction={extract_time:.3f}s"
+        )
 
         if not pages:
 
@@ -211,8 +360,16 @@ if uploaded_file is not None:
                 f"{len(pages)} pages extracted."
             )
 
+            chunk_start = time.perf_counter()
+
             chunks = create_chunks(
                 pages
+            )
+
+            chunk_time = time.perf_counter() - chunk_start
+
+            print(
+                f"[TIMING] chunking={chunk_time:.3f}s"
             )
 
             for chunk in chunks:
@@ -235,96 +392,46 @@ if uploaded_file is not None:
             # The same PDF should not be embedded again on every
             # Streamlit rerun/session. The cache key is based on
             # the actual PDF bytes, so a changed PDF gets a new index.
+            hash_start = time.perf_counter()
+
             pdf_bytes = uploaded_file.getvalue()
 
             pdf_hash = hashlib.sha256(
                 pdf_bytes
             ).hexdigest()[:16]
 
-            cache_dir = (
-                "data/uploaded_index_cache"
+            hash_time = time.perf_counter() - hash_start
+
+            print(
+                f"[TIMING] pdf_hash={hash_time:.3f}s"
             )
 
-            cache_path = (
-                Path(cache_dir)
-                / f"{pdf_hash}.pkl"
-            )
-
-            Path(cache_dir).mkdir(
-                parents=True,
-                exist_ok=True
-            )
-
-            if cache_path.exists():
-
-                with st.spinner(
-                    "Loading cached document search index..."
-                ):
-
-                    with open(
-                        cache_path,
-                        "rb"
-                    ) as cache_file:
-
-                        cached_data = pickle.load(
-                            cache_file
-                        )
-
-                    vector_index = cached_data[
-                        "index"
-                    ]
-
-                st.success(
-                    "Cached document search index loaded. "
-                    "No embedding rebuild was required."
-                )
-
-            else:
-
-                with st.spinner(
-                    "First time for this PDF: creating document search index..."
-                ):
-
-                    vector_index = create_vector_store(
-                        chunks
-                    )
-
-                    if vector_index is None:
-
-                        st.error(
-                            "Could not create the document search index."
-                        )
-
-                    else:
-
-                        with open(
-                            cache_path,
-                            "wb"
-                        ) as cache_file:
-
-                            pickle.dump(
-                                {
-                                    "index": vector_index,
-                                    "document_name": uploaded_file.name,
-                                    "pdf_hash": pdf_hash
-                                },
-                                cache_file
-                            )
-
-                if vector_index is not None:
-
-                    st.success(
-                        "Search index created and cached. "
-                        "Future runs with this PDF will be faster."
-                    )
-
-            st.session_state[
-                "vector_index"
-            ] = vector_index
-
+            # -------------------------------------------------
+            # LAZY SEMANTIC INDEX
+            # -------------------------------------------------
+            # Do NOT load SentenceTransformer/FAISS during Read Document.
+            # HARA uses the fast lexical retriever below, so the user does
+            # not pay a 30-60 second embedding-model cold start.
+            #
+            # A semantic FAISS index is created only if the optional
+            # "Search Document" feature is explicitly used.
             st.session_state[
                 "document_pdf_hash"
             ] = pdf_hash
+
+            st.session_state[
+                "vector_index"
+            ] = None
+
+            print(
+                "[TIMING] semantic_index=deferred_until_explicit_search"
+            )
+
+            total_read_time = time.perf_counter() - read_start
+
+            print(
+                f"[TIMING] TOTAL_READ_DOCUMENT={total_read_time:.3f}s"
+            )
 
 
 # =========================================================
@@ -348,7 +455,7 @@ if "document_pages" in st.session_state:
         ):
 
             st.text(
-                page["text"]
+                clean_display_text(page["text"])
             )
 
 
@@ -356,7 +463,7 @@ if "document_pages" in st.session_state:
 # 2. SEARCH UPLOADED DOCUMENT
 # =========================================================
 
-if "vector_index" in st.session_state:
+if "document_chunks" in st.session_state:
 
     st.header(
         "ðŸ”Ž Search Uploaded Engineering Document"
@@ -381,54 +488,110 @@ if "vector_index" in st.session_state:
 
         else:
 
-            with st.spinner(
-                "Searching engineering document..."
-            ):
+            # Explicit document search may use semantic FAISS.
+            # This is intentionally separate from HARA so HARA remains fast.
+            if st.session_state.get("vector_index") is None:
 
-                results = search_documents(
-                    query=search_query,
-                    chunks=st.session_state[
-                        "document_chunks"
-                    ],
-                    index=st.session_state[
-                        "vector_index"
-                    ],
-                    top_k=3
+                pdf_hash = st.session_state.get("document_pdf_hash", "")
+                cache_path = (
+                    Path("data/uploaded_index_cache")
+                    / f"{pdf_hash}.pkl"
                 )
 
-            if not results:
+                if cache_path.exists():
 
-                st.warning(
-                    "No sufficiently relevant information was found "
-                    "in the uploaded engineering document."
+                    with st.spinner(
+                        "Loading cached semantic search index..."
+                    ):
+
+                        with open(cache_path, "rb") as cache_file:
+                            cached_data = pickle.load(cache_file)
+
+                        st.session_state["vector_index"] = cached_data["index"]
+
+                else:
+
+                    with st.spinner(
+                        "Preparing semantic document search (first use)..."
+                    ):
+
+                        st.session_state["vector_index"] = create_vector_store(
+                            st.session_state["document_chunks"]
+                        )
+
+                        if st.session_state["vector_index"] is not None:
+                            cache_path.parent.mkdir(
+                                parents=True,
+                                exist_ok=True
+                            )
+                            with open(cache_path, "wb") as cache_file:
+                                pickle.dump(
+                                    {
+                                        "index": st.session_state["vector_index"],
+                                        "document_name": st.session_state.get(
+                                            "document_name", "PDF"
+                                        ),
+                                        "pdf_hash": pdf_hash,
+                                    },
+                                    cache_file,
+                                )
+
+            if st.session_state.get("vector_index") is None:
+
+                st.error(
+                    "Could not prepare the semantic document search index."
                 )
 
             else:
 
-                st.success(
-                    f"{len(results)} relevant sections found."
-                )
-
-                for i, result in enumerate(
-                    results,
-                    start=1
+                with st.spinner(
+                    "Searching engineering document..."
                 ):
 
-                    st.subheader(
-                        f"Evidence {i} â€” Page {result['page']}"
+                    results = search_documents(
+                        query=search_query,
+                        chunks=st.session_state[
+                            "document_chunks"
+                        ],
+                        index=st.session_state[
+                            "vector_index"
+                        ],
+                        top_k=3
                     )
 
-                    st.write(
-                        result["text"]
+                if not results:
+
+                    st.warning(
+                        "No sufficiently relevant information was found "
+                        "in the uploaded engineering document."
                     )
 
-                    st.caption(
-                        f"Source: "
-                        f"{result.get('source', 'Uploaded Document')} | "
-                        f"Relevance: {result['score']:.4f}"
+                else:
+
+                    st.success(
+                        f"{len(results)} relevant sections found."
                     )
 
-                    st.divider()
+                    for i, result in enumerate(
+                        results,
+                        start=1
+                    ):
+
+                        st.subheader(
+                            f"Evidence {i} — Page {result['page']}"
+                        )
+
+                        st.write(
+                            clean_display_text(result["text"])
+                        )
+
+                        st.caption(
+                            f"Source: "
+                            f"{result.get('source', 'Uploaded Document')} | "
+                            f"Relevance: {result['score']:.4f}"
+                        )
+
+                        st.divider()
 
 
 # =========================================================
@@ -555,12 +718,11 @@ automotive function, its malfunctions, hazards and
 hazardous events.
 """
 
+        # HARA uses the uploaded PDF directly with a fast lexical
+        # retriever. It does not require the SentenceTransformer model.
         uploaded_document_available = (
             "document_chunks" in st.session_state
-            and "vector_index" in st.session_state
-            and st.session_state[
-                "vector_index"
-            ] is not None
+            and bool(st.session_state.get("document_chunks"))
         )
 
         evidence_results = []
@@ -577,15 +739,17 @@ hazardous events.
                 "Retrieving evidence from uploaded engineering document..."
             ):
 
-                evidence_results = search_documents(
+                _t = time.perf_counter()
+
+                evidence_results = lexical_search_uploaded_document(
                     query=query,
-                    chunks=st.session_state[
-                        "document_chunks"
-                    ],
-                    index=st.session_state[
-                        "vector_index"
-                    ],
+                    chunks=st.session_state["document_chunks"],
                     top_k=5
+                )
+
+                print(
+                    f"[TIMING] uploaded_lexical_search="
+                    f"{time.perf_counter() - _t:.3f}s"
                 )
 
             evidence_source = (
@@ -593,13 +757,14 @@ hazardous events.
                 f"{st.session_state.get('document_name', 'PDF')}"
             )
 
+
         # -------------------------------------------------
         # FALLBACK: KNOWLEDGE BASE
         # -------------------------------------------------
         # The heavy KB is loaded only if the uploaded document
         # did not provide usable evidence.
 
-        if not evidence_results:
+        if not evidence_results and not uploaded_document_available:
 
             with st.spinner(
                 "Loading automotive engineering knowledge base..."
@@ -613,159 +778,199 @@ hazardous events.
                     "Checking engineering knowledge base..."
                 ):
 
+                    _t = time.perf_counter()
                     evidence_results = search_documents(
                         query=query,
                         chunks=kb_chunks,
                         index=kb_index,
                         top_k=5
                     )
+                    print(f"[TIMING] kb_search={time.perf_counter() - _t:.3f}s")
 
                 evidence_source = (
                     "Automotive Engineering Knowledge Base"
                 )
 
         # -------------------------------------------------
-        # NO EVIDENCE
+        # SAFE HARA FALLBACK
         # -------------------------------------------------
+        # Do not block HARA just because the uploaded PDF does not contain
+        # exact BCM / door-locking terminology. The HARA engine can still
+        # generate candidate malfunctions from the engineer's Item Definition.
+        #
+        # IMPORTANT:
+        # This fallback is explicitly labelled as USER-PROVIDED CONTEXT.
+        # It is not presented as evidence extracted from the PDF.
+
+        evidence_mode = "Uploaded Engineering Document"
 
         if not evidence_results:
+            fallback_text = (
+                f"System / Item: {system}. "
+                f"Intended Function: {function}. "
+                f"Operational Scenario: {scenario}. "
+                f"Operating Conditions: {operating_conditions or 'Not specified'}. "
+                "This context was provided directly by the engineer for HARA "
+                "candidate generation. No sufficiently relevant matching "
+                "section was found in the uploaded document."
+            )
 
-            st.warning(
-                "No sufficiently relevant engineering evidence "
-                "was found. AI analysis was not generated."
+            evidence_results = [{
+                "source": "User-Provided Item Definition",
+                "page": "-",
+                "text": fallback_text,
+                "score": 1.0,
+                "evidence_type": "user_context",
+            }]
+
+            evidence_source = (
+                "User-Provided Item Definition "
+                "(uploaded PDF had no sufficiently matching section)"
+            )
+            evidence_mode = "User-Provided Item Definition"
+
+            st.info(
+                "ℹ️ The uploaded PDF did not contain a sufficiently matching "
+                "section for this HARA input. Analysis will continue using "
+                "the Item Definition entered above."
             )
 
         else:
+            evidence_source = (
+                evidence_source or "Uploaded Engineering Document"
+            )
 
-            evidence = []
+        evidence = []
 
-            for result in evidence_results:
+        for result in evidence_results:
 
-                evidence.append(
-                    {
-                        "source": result.get(
-                            "source",
-                            "Engineering Document"
-                        ),
-                        "page": result["page"],
-                        "text": result["text"]
-                    }
-                )
+            evidence.append(
+                {
+                    "source": result.get(
+                        "source",
+                        "Engineering Document"
+                    ),
+                    "page": result["page"],
+                    "text": clean_display_text(result["text"])
+                }
+            )
 
-            # -------------------------------------------------
-            # ENGINEERING EVIDENCE
-            # -------------------------------------------------
+        # -------------------------------------------------
+        # ENGINEERING EVIDENCE
+        # -------------------------------------------------
 
-            with st.expander(
-                "ðŸ“š Engineering Evidence Used by AI",
-                expanded=True
+        with st.expander(
+            "📚 Engineering Evidence Used by AI",
+            expanded=True
+        ):
+
+            st.caption(
+                f"Source: {evidence_source}"
+            )
+
+            for i, result in enumerate(
+                evidence_results,
+                start=1
             ):
+
+                st.markdown(
+                    f"**Evidence {i}**"
+                )
 
                 st.caption(
-                    f"Source: {evidence_source}"
+                    f"{result.get('source', 'Engineering Document')} "
+                    f"· Page {result['page']} "
+                    f"· Relevance {result['score']:.4f}"
                 )
 
-                for i, result in enumerate(
-                    evidence_results,
-                    start=1
-                ):
-
-                    st.markdown(
-                        f"**Evidence {i}**"
-                    )
-
-                    st.caption(
-                        f"{result.get('source', 'Engineering Document')} "
-                        f"Â· Page {result['page']} "
-                        f"Â· Relevance {result['score']:.4f}"
-                    )
-
-                    st.write(
-                        result["text"]
-                    )
-
-                    st.divider()
-
-            # -------------------------------------------------
-            # QWEN3 ANALYSIS
-            # -------------------------------------------------
-
-            with st.spinner(
-                "AI is analyzing the engineering evidence..."
-            ):
-
-                answer = analyze_with_qwen(
-                    system=system,
-                    function=function,
-                    scenario=scenario,
-                    evidence=evidence,
-                    summary_mode=summary_mode
+                st.write(
+                    clean_display_text(result["text"])
                 )
 
-            # -------------------------------------------------
-            # SAVE HARA RESULT
-            # -------------------------------------------------
+                st.divider()
 
-            st.session_state[
-                "hara_answer"
-            ] = answer
+        # -------------------------------------------------
+        # QWEN3 ANALYSIS
+        # -------------------------------------------------
 
-            st.session_state[
-                "hara_evidence"
-            ] = evidence_results
+        with st.spinner(
+            "AI is analyzing the engineering evidence..."
+        ):
 
-            st.session_state[
-                "hara_system"
-            ] = system
-
-            st.session_state[
-                "hara_function"
-            ] = function
-
-            st.session_state[
-                "hara_scenario"
-            ] = scenario
-
-            # Clear old downstream results
-            st.session_state.pop(
-                "candidate_asil",
-                None
+            _t = time.perf_counter()
+            answer = analyze_with_qwen(
+                system=system,
+                function=function,
+                scenario=scenario,
+                evidence=evidence,
+                summary_mode=summary_mode
             )
+            print(f"[TIMING] analyze={time.perf_counter() - _t:.3f}s")
 
-            st.session_state.pop(
-                "asil_assessment_completed",
-                None
-            )
+        # -------------------------------------------------
+        # SAVE HARA RESULT
+        # -------------------------------------------------
 
-            st.session_state.pop(
-                "safety_goal_result",
-                None
-            )
+        st.session_state[
+            "hara_answer"
+        ] = answer
 
-            st.session_state.pop(
-                "fsr_results",
-                None
-            )
+        st.session_state[
+            "hara_evidence"
+        ] = evidence_results
 
-            st.session_state.pop(
-                "tsr_results",
-                None
-            )
+        st.session_state[
+            "hara_system"
+        ] = system
 
-            st.session_state.pop(
-                "tsr_fsr_id",
-                None
-            )
+        st.session_state[
+            "hara_function"
+        ] = function
 
-            st.session_state.pop(
-                "traceability_rows",
-                None
-            )
+        st.session_state[
+            "hara_scenario"
+        ] = scenario
 
-            st.session_state.pop(
-                "safety_goal_hara_key",
-                None
-            )
+        # Clear old downstream results
+        st.session_state.pop(
+            "candidate_asil",
+            None
+        )
+
+        st.session_state.pop(
+            "asil_assessment_completed",
+            None
+        )
+
+        st.session_state.pop(
+            "safety_goal_result",
+            None
+        )
+
+        st.session_state.pop(
+            "fsr_results",
+            None
+        )
+
+        st.session_state.pop(
+            "tsr_results",
+            None
+        )
+
+        st.session_state.pop(
+            "tsr_fsr_id",
+            None
+        )
+
+        st.session_state.pop(
+            "traceability_rows",
+            None
+        )
+
+        st.session_state.pop(
+            "safety_goal_hara_key",
+            None
+        )
 
 
 # =========================================================
@@ -775,7 +980,7 @@ hazardous events.
 if "hara_answer" in st.session_state:
 
     st.success(
-        "HARA analysis generated using retrieved engineering evidence."
+        "HARA analysis generated from the available engineering context."
     )
 
     if summary_mode:
@@ -792,7 +997,9 @@ if "hara_answer" in st.session_state:
 
     # Render the HARA result as readable scenario blocks instead of
     # one long paragraph. This does not change the generated content.
-    answer_text = st.session_state["hara_answer"]
+    answer_text = clean_display_text(
+        st.session_state["hara_answer"]
+    )
 
     def speak_hara_summary(answer, quick=False):
         """Read HARA summary and resume from the last spoken position."""

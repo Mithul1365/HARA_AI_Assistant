@@ -21,22 +21,105 @@ def generate_fsr(
     qualified functional-safety engineer.
     """
 
-    system_text = system.strip()
-    function_text = function.strip()
-    malfunction_text = malfunction.strip()
-    hazard_text = hazard.strip()
-    event_text = hazardous_event.strip()
-    safety_goal_text = safety_goal.strip()
+    system_text = (system or "").strip()
+    function_text = (function or "").strip()
+    malfunction_text = (malfunction or "").strip()
+    hazard_text = (hazard or "").strip()
+    event_text = (hazardous_event or "").strip()
+    safety_goal_text = (safety_goal or "").strip()
 
     system_lower = system_text.lower()
+    function_lower = function_text.lower()
+    malfunction_lower = malfunction_text.lower()
+    hazard_lower = hazard_text.lower()
 
     fsrs = []
+
+    # -----------------------------------------------------
+    # ADAPTIVE CRUISE CONTROL (ACC)
+    # -----------------------------------------------------
+    # Keep ACC before the generic ADAS branch because ACC is
+    # an ADAS function but needs more specific requirements.
+    # -----------------------------------------------------
+
+    if (
+        "adaptive cruise control" in system_lower
+        or "active cruise control" in system_lower
+        or system_lower.strip() == "acc"
+        or "acc" in system_lower.split()
+    ):
+
+        fsrs = [
+
+            {
+                "id": "FSR-001",
+                "requirement": (
+                    "The Adaptive Cruise Control (ACC) shall detect "
+                    "safety-relevant faults affecting vehicle detection, "
+                    "following-distance control, or vehicle-speed control "
+                    "within the defined operating conditions."
+                ),
+                "rationale": (
+                    "Fault detection supports identification of failures "
+                    "that could prevent the ACC from maintaining the required "
+                    "following distance and could contribute to the identified "
+                    "hazardous event."
+                )
+            },
+
+            {
+                "id": "FSR-002",
+                "requirement": (
+                    "The Adaptive Cruise Control (ACC) shall prevent "
+                    "continued automatic speed control or unintended "
+                    "vehicle acceleration when a critical safety-relevant "
+                    "fault affecting safe following-distance control is detected."
+                ),
+                "rationale": (
+                    "Preventing continued automatic control after detection "
+                    "of a critical fault limits the potential for an unsafe "
+                    "vehicle response associated with the identified hazard."
+                )
+            },
+
+            {
+                "id": "FSR-003",
+                "requirement": (
+                    "The Adaptive Cruise Control (ACC) shall provide a defined "
+                    "driver warning and transition to the specified safe state "
+                    "when a critical safety-relevant fault affecting "
+                    "following-distance or vehicle-speed control is detected."
+                ),
+                "rationale": (
+                    "A defined warning and safe-state transition provides a "
+                    "controlled response to a critical ACC fault and supports "
+                    "mitigation of the identified hazardous event."
+                )
+            },
+
+            {
+                "id": "FSR-004",
+                "requirement": (
+                    "The Adaptive Cruise Control (ACC) shall monitor the "
+                    "validity of safety-relevant inputs used for vehicle "
+                    "detection and following-distance control and shall "
+                    "identify an invalid or unavailable input as a "
+                    "safety-relevant fault."
+                ),
+                "rationale": (
+                    "Monitoring safety-relevant input validity supports "
+                    "detection of conditions that could otherwise result "
+                    "in incorrect or unintended ACC control."
+                )
+            }
+
+        ]
 
     # -----------------------------------------------------
     # EPS / STEERING
     # -----------------------------------------------------
 
-    if (
+    elif (
         "steering" in system_lower
         or "eps" in system_lower
     ):

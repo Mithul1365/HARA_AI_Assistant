@@ -1,0 +1,808 @@
+﻿import { useEffect, useRef, useState } from 'react';
+import type {
+  DocumentData,
+  ItemContext,
+} from '@/App';
+
+interface HaraAnalysisProps {
+  documentData: DocumentData | null;
+  itemContext: ItemContext;
+  onPrevious: () => void;
+  onContinue: (scenario: Scenario) => void;
+  onScenariosLoaded?: (scenarios: Scenario[]) => void;
+  initialScenarios?: Scenario[];
+  initialEvidence?: Evidence[];
+  onEvidenceLoaded?: (evidence: Evidence[]) => void;
+}
+
+interface Scenario {
+  number: number;
+  malfunction: string;
+  hazard: string;
+  event: string;
+  rationale: string;
+}
+
+interface Evidence {
+  text: string;
+  source: string;
+  score?: number;
+}
+
+function parseHaraResult(result: string): Scenario[] {
+  if (!result || !result.trim()) {
+    return [];
+  }
+
+  const cleaned = result
+    .replace(/\r/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim();
+
+  const scenarioMatches = [
+    ...cleaned.matchAll(/Scenario\s*(\d+)\s*:?\s*/gi),
+  ];
+
+  if (scenarioMatches.length === 0) {
+    return [];
+  }
+
+  const scenarios: Scenario[] = [];
+
+  scenarioMatches.forEach((match, index) => {
+    const scenarioNumber = Number(match[1]);
+
+    const start =
+      (match.index ?? 0) + match[0].length;
+
+    const end =
+      index + 1 < scenarioMatches.length
+        ? scenarioMatches[index + 1].index ?? cleaned.length
+        : cleaned.length;
+
+    const block = cleaned
+      .slice(start, end)
+      .trim();
+
+    const fieldRegex =
+      /(Potential Malfunction|Potential Hazard|Hazardous Event|Rationale)\s*:\s*/gi;
+
+    const fields = [...block.matchAll(fieldRegex)];
+
+    let malfunction = 'Not available';
+    let hazard = 'Not available';
+    let event = 'Not available';
+    let rationale = 'Not available';
+
+    fields.forEach((fieldMatch, fieldIndex) => {
+      const fieldName = fieldMatch[1]
+        .toLowerCase()
+        .trim();
+
+      const valueStart =
+        (fieldMatch.index ?? 0) +
+        fieldMatch[0].length;
+
+      const valueEnd =
+        fieldIndex + 1 < fields.length
+          ? fields[fieldIndex + 1].index ?? block.length
+          : block.length;
+
+      const value = block
+        .slice(valueStart, valueEnd)
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!value) {
+        return;
+      }
+
+      if (fieldName === 'potential malfunction') {
+        malfunction = value;
+      }
+
+      if (fieldName === 'potential hazard') {
+        hazard = value;
+      }
+
+      if (fieldName === 'hazardous event') {
+        event = value;
+      }
+
+      if (fieldName === 'rationale') {
+        rationale = value;
+      }
+    });
+
+    scenarios.push({
+      number: scenarioNumber || index + 1,
+      malfunction,
+      hazard,
+      event,
+      rationale,
+    });
+  });
+
+  return scenarios;
+}
+
+function speakScenario(scenario: Scenario) {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+
+  const text = [
+    `Scenario ${scenario.number}.`,
+    `Potential Malfunction: ${scenario.malfunction}.`,
+    `Potential Hazard: ${scenario.hazard}.`,
+    `Hazardous Event: ${scenario.event}.`,
+    `Engineering Rationale: ${scenario.rationale}.`,
+  ].join(' ');
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.9;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+
+  window.speechSynthesis.speak(utterance);
+}
+
+function stopSpeaking() {
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+}
+
+
+function getHaraRiskLevel(scenario: Scenario): 'Low' | 'Medium' | 'High' {
+  const text = [
+    scenario.malfunction,
+    scenario.hazard,
+    scenario.event,
+    scenario.rationale,
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  const highRiskTerms = [
+    'collision',
+    'crash',
+    'fatal',
+    'death',
+    'serious injury',
+    'loss of vehicle control',
+    'unintended acceleration',
+    'unintended braking',
+    'brake failure',
+    'steering failure',
+    'airbag failure',
+    'restraint failure',
+    'critical safety function',
+    'cannot control',
+    'loss of control',
+  ];
+
+  const mediumRiskTerms = [
+    'unsafe',
+    'injury',
+    'unsecured',
+    'unexpected',
+    'incorrect',
+    'wrong',
+    'failure',
+    'fails',
+    'fault',
+    'undetected',
+    'not detected',
+    'not warned',
+    'warning',
+    'delayed',
+    'intermittent',
+    'incorrectly reported',
+    'misleading',
+    'driver misunderstanding',
+    'risk',
+  ];
+
+  const highMatches = highRiskTerms.filter((term) =>
+    text.includes(term)
+  ).length;
+
+  const mediumMatches = mediumRiskTerms.filter((term) =>
+    text.includes(term)
+  ).length;
+
+  if (highMatches >= 2 || (highMatches >= 1 && mediumMatches >= 2)) {
+    return 'High';
+  }
+
+  if (mediumMatches >= 1 || highMatches >= 1) {
+    return 'Medium';
+  }
+
+  return 'Low';
+}
+
+function getRiskBadgeClass(level: 'Low' | 'Medium' | 'High') {
+  if (level === 'High') {
+    return 'bg-red-100 text-red-700 border border-red-200';
+  }
+
+  if (level === 'Medium') {
+    return 'bg-blue-100 text-blue-700 border border-blue-200';
+  }
+
+  return 'bg-green-100 text-green-700 border border-green-200';
+}
+function HaraAnalysis({
+  documentData,
+  itemContext,
+  onPrevious,
+  onContinue,
+  onScenariosLoaded,
+  initialScenarios = [],
+  initialEvidence = [],
+  onEvidenceLoaded,
+}: HaraAnalysisProps) {
+  const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
+
+const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [scenarios, setScenarios] = useState<Scenario[]>(initialScenarios);
+  const [evidence, setEvidence] = useState<Evidence[]>(initialEvidence);
+  const [hasExistingScenarios] = useState(
+    initialScenarios.length > 0
+  );
+
+  const analysisStarted = useRef(false);
+
+  useEffect(() => {
+    const runHaraAnalysis = async () => {
+
+      if (analysisStarted.current) {
+        return;
+      }
+
+      if (hasExistingScenarios) {
+        setScenarios(initialScenarios);
+        setEvidence(initialEvidence);
+        setLoading(false);
+        return;
+      }
+
+      analysisStarted.current = true;
+
+      if (!documentData) {
+        setError(
+          'No engineering document found. Please go back to Item Definition.'
+        );
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError('');
+
+      try {
+        const response = await fetch(
+          'http://127.0.0.1:8000/api/hara/analyze',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+
+            // IMPORTANT:
+            // These field names must match FastAPI HaraAnalyzeRequest.
+            body: JSON.stringify({
+              document_id: documentData.documentId,
+
+              system: itemContext.systemItem,
+
+              function: itemContext.intendedFunction,
+
+              scenario: itemContext.operationalScenario,
+
+              operating_conditions:
+                itemContext.operatingConditions,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          let errorMessage =
+            `API request failed with status ${response.status}`;
+
+          try {
+            const errorData = await response.json();
+
+            if (errorData?.detail) {
+              if (Array.isArray(errorData.detail)) {
+                errorMessage = errorData.detail
+                  .map(
+                    (item: any) =>
+                      `${item.loc?.join('.') || 'field'}: ${
+                        item.msg || 'Invalid value'
+                      }`
+                  )
+                  .join(', ');
+              } else {
+                errorMessage = String(errorData.detail);
+              }
+            }
+          } catch {
+            // Keep default HTTP error message.
+          }
+
+          throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+
+        if (!data.success) {
+          throw new Error(
+            data.message || 'HARA analysis failed.'
+          );
+        }
+
+        const parsedScenarios = parseHaraResult(
+          data.hara_result || ''
+        );
+
+        setScenarios(parsedScenarios);
+        onScenariosLoaded?.(parsedScenarios);
+
+        const returnedEvidence = Array.isArray(data.evidence)
+          ? data.evidence
+          : [];
+
+        console.log("[HARA] Evidence returned from API:", returnedEvidence);
+
+        setEvidence(returnedEvidence);
+        onEvidenceLoaded?.(returnedEvidence);
+      } catch (err) {
+        console.error(
+          'HARA analysis error:',
+          err
+        );
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Unable to run HARA analysis.'
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    runHaraAnalysis();
+  }, [
+    documentData,
+    itemContext,
+    hasExistingScenarios,
+    initialScenarios,
+    onScenariosLoaded,
+    initialEvidence,
+    onEvidenceLoaded,
+  ]);
+
+
+  useEffect(() => {
+    if (scenarios.length === 0 || !selectedScenario) {
+      return;
+    }
+
+    setSelectedScenario((current) => {
+      if (!current) {
+        return null;
+      }
+
+      const matching = scenarios.find(
+        (scenario) =>
+          scenario.number === current.number &&
+          scenario.malfunction === current.malfunction
+      );
+
+      return matching || null;
+    });
+  }, [scenarios]);
+  return (
+    <div className="min-h-full bg-slate-50 p-6">
+
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between">
+
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">
+              HARA Analysis
+            </h1>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Hazard Analysis and Risk Assessment
+            </p>
+          </div>
+
+          {documentData && (
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+
+              <div className="text-xs text-slate-500">
+                Engineering Document
+              </div>
+
+              <div className="mt-1 font-medium text-slate-800">
+                {documentData.documentName}
+              </div>
+
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* Context */}
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Item Definition
+          </h2>
+
+          <div className="space-y-3">
+
+            <div>
+              <div className="text-xs text-slate-500">
+                System / Item
+              </div>
+
+              <div className="mt-1 text-sm font-medium text-slate-900">
+                {itemContext.systemItem ||
+                  'Not available'}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs text-slate-500">
+                Intended Function
+              </div>
+
+              <div className="mt-1 text-sm text-slate-700">
+                {itemContext.intendedFunction ||
+                  'Not available'}
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Operational Context
+          </h2>
+
+          <div className="space-y-3">
+
+            <div>
+              <div className="text-xs text-slate-500">
+                Operational Scenario
+              </div>
+
+              <div className="mt-1 text-sm text-slate-700">
+                {itemContext.operationalScenario ||
+                  'Not available'}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs text-slate-500">
+                Operating Conditions
+              </div>
+
+              <div className="mt-1 text-sm text-slate-700">
+                {itemContext.operatingConditions ||
+                  'Not available'}
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-8 text-center">
+
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-blue-200 border-t-blue-700" />
+
+          <h2 className="font-semibold text-blue-900">
+            Running HARA Analysis...
+          </h2>
+
+          <p className="mt-1 text-sm text-blue-700">
+            Retrieving engineering evidence and generating
+            hazard scenarios.
+          </p>
+
+        </div>
+      )}
+
+      {/* Error */}
+      {!loading && error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+
+          <h2 className="font-semibold text-red-900">
+            HARA Analysis Error
+          </h2>
+
+          <p className="mt-2 text-sm text-red-700">
+            {error}
+          </p>
+
+        </div>
+      )}
+
+      {/* Main HARA Content */}
+      {!loading && !error && (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+
+          {/* Scenarios */}
+          <div>
+
+            <div className="mb-4 flex items-center justify-between">
+
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  HARA Scenarios
+                </h2>
+
+                <p className="text-sm text-slate-500">
+                  AI-generated candidate hazardous scenarios
+                  based on the uploaded engineering document.
+                </p>
+              </div>
+
+              <div className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                {scenarios.length} Scenarios
+              </div>
+
+            </div>
+
+            {scenarios.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+
+                <p className="text-sm text-slate-500">
+                  No HARA scenarios were generated.
+                </p>
+
+              </div>
+            ) : (
+              <div className="space-y-4">
+
+                {scenarios.map((scenario) => (
+                  <div
+                    key={scenario.number}
+                    className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+                  >
+
+                    <div className="mb-5 flex items-center gap-3">
+
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-700 text-sm font-bold text-white">
+                        {scenario.number}
+                      </div>
+
+                      <div>
+                        <h3 className="font-bold text-slate-900">
+                          Scenario {scenario.number}
+                        </h3>
+
+                        <p className="text-xs text-slate-500">
+                          Candidate HARA scenario
+                        </p>
+                      </div>
+
+                    </div>
+
+                    <div className="mb-4 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => speakScenario(scenario)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+                      >
+                        🔊 Listen
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={stopSpeaking}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                      >
+                        ⏹ Stop
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+
+                      <div className="rounded-lg bg-slate-50 p-4">
+
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Potential Malfunction
+                        </div>
+
+                        <p className="text-sm leading-6 text-slate-800">
+                          {scenario.malfunction}
+                        </p>
+
+                      </div>
+
+                      <div className="rounded-lg bg-slate-50 p-4">
+
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Potential Hazard
+                        </div>
+
+                        <p className="text-sm leading-6 text-slate-800">
+                          {scenario.hazard}
+                        </p>
+
+                      </div>
+
+                      <div className="rounded-lg bg-slate-50 p-4 md:col-span-2">
+
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Hazardous Event
+                        </div>
+
+                        <p className="text-sm leading-6 text-slate-800">
+                          {scenario.event}
+                        </p>
+
+                      </div>
+
+                      <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 md:col-span-2">
+
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+                          Engineering Rationale
+                        </div>
+
+                        <p className="text-sm leading-6 text-slate-700">
+                          {scenario.rationale}
+                        </p>
+
+                      </div>
+
+                    </div>
+                  </div>
+                ))}
+
+              </div>
+            )}
+
+          </div>
+
+          {/* Evidence */}
+          <div>
+
+            <div className="sticky top-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+
+              <div className="border-b border-slate-200 p-5">
+
+                <h2 className="font-bold text-slate-900">
+                  Engineering Evidence
+                </h2>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  Evidence retrieved from the uploaded
+                  engineering document.
+                </p>
+
+              </div>
+
+              <div className="max-h-[650px] overflow-y-auto p-5">
+
+                {evidence.length === 0 ? (
+                  <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+                    No supporting evidence was returned.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+
+                    {evidence.map((item, index) => (
+                      <div
+                        key={index}
+                        className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+                      >
+
+                        <div className="mb-2 flex items-center justify-between gap-3">
+
+                          <span className="rounded bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
+                            Evidence {index + 1}
+                          </span>
+
+                          {item.score !== undefined && (
+                            <span className="text-[11px] text-slate-400">
+                              Score:{' '}
+                              {item.score.toFixed(3)}
+                            </span>
+                          )}
+
+                        </div>
+
+                        <p className="text-sm leading-6 text-slate-700">
+                          {item.text}
+                        </p>
+
+                        <div className="mt-3 border-t border-slate-200 pt-3 text-xs text-slate-500">
+                          Source:{' '}
+                          {item.source ||
+                            documentData?.documentName ||
+                            'Uploaded document'}
+                        </div>
+
+                      </div>
+                    ))}
+
+                  </div>
+                )}
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
+      {/* Bottom Navigation */}
+      <div className="mt-8 flex items-center justify-between border-t border-slate-200 pt-5">
+
+        <button
+          type="button"
+          onClick={onPrevious}
+          className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        >{'←'} Previous
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (scenarios.length > 0) {
+              onContinue(selectedScenario);
+            }
+          }}
+          disabled={
+            loading ||
+            !!error ||
+            scenarios.length === 0 || !selectedScenario
+          }
+          className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Continue to ASIL Assessment {'\u2192'}
+        </button>
+
+      </div>
+
+    </div>
+  );
+}
+
+export default HaraAnalysis;
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,330 @@
+
+import json
+import urllib.request
+
+OLLAMA_URL = "http://localhost:11434/api/chat"
+MODEL_NAME = "qwen3:4b"
+
+
+def _ask(instruction, payload, timeout=75):
+    prompt = (
+        "/no_think\n"
+        + instruction
+        + "\n\nCONTEXT:\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+
+    data = {
+        "model": MODEL_NAME,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are an automotive functional-safety engineering assistant. "
+                    "Provide conservative, evidence-grounded candidate recommendations. "
+                    "Do not claim certification, compliance or final engineering approval."
+                ),
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        "stream": False,
+        "think": False,
+        "keep_alive": -1,
+        "format": "json",
+        "options": {
+            "num_predict": 280,
+            "num_ctx": 2048,
+            "temperature": 0.2,
+        },
+    }
+
+    request = urllib.request.Request(
+        OLLAMA_URL,
+        data=json.dumps(data).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        result = json.loads(response.read().decode("utf-8"))
+
+    answer = str(
+        result.get("message", {}).get("content", "")
+    ).strip()
+
+    if not answer:
+        answer = str(
+            result.get("response", "")
+        ).strip()
+
+    if not answer:
+        raise ValueError("Qwen3 returned an empty response.")
+
+    try:
+        parsed = json.loads(answer)
+
+    except json.JSONDecodeError:
+        start = answer.find("{")
+        end = answer.rfind("}")
+
+        if start < 0 or end <= start:
+            raise ValueError(
+                "Qwen3 did not return valid JSON."
+            )
+
+        parsed = json.loads(
+            answer[start:end + 1]
+        )
+
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "Qwen3 returned an unexpected JSON structure."
+        )
+
+    return parsed
+
+
+def recommend_asil(
+    system,
+    function,
+    operational_scenario,
+    operating_conditions,
+    malfunction,
+    hazard,
+    hazardous_event,
+):
+    result = _ask(
+        (
+            "Recommend candidate ISO 26262 HARA S/E/C values "
+            "for engineering review. Return ONLY JSON with "
+            "severity, exposure, controllability, confidence, "
+            "rationale. Severity must be S0-S3. Exposure must "
+            "be E0-E4. Controllability must be C0-C3. "
+            "Confidence must be LOW, MEDIUM or HIGH. "
+            "Use the supplied system, function, scenario, "
+            "malfunction, hazard and hazardous event. "
+            "Do NOT state the final ASIL. The existing ASIL "
+            "engine will calculate the ASIL after review."
+        ),
+        {
+            "system": system,
+            "function": function,
+            "operational_scenario": operational_scenario,
+            "operating_conditions": operating_conditions,
+            "malfunction": malfunction,
+            "hazard": hazard,
+            "hazardous_event": hazardous_event,
+        },
+    )
+
+    severity = str(
+        result.get("severity", "")
+    ).upper().strip()
+
+    exposure = str(
+        result.get("exposure", "")
+    ).upper().strip()
+
+    controllability = str(
+        result.get("controllability", "")
+    ).upper().strip()
+
+    confidence = str(
+        result.get("confidence", "MEDIUM")
+    ).upper().strip()
+
+    if severity not in {
+        "S0", "S1", "S2", "S3"
+    }:
+        raise ValueError(
+            "AI returned invalid Severity."
+        )
+
+    if exposure not in {
+        "E0", "E1", "E2", "E3", "E4"
+    }:
+        raise ValueError(
+            "AI returned invalid Exposure."
+        )
+
+    if controllability not in {
+        "C0", "C1", "C2", "C3"
+    }:
+        raise ValueError(
+            "AI returned invalid Controllability."
+        )
+
+    if confidence not in {
+        "LOW", "MEDIUM", "HIGH"
+    }:
+        confidence = "MEDIUM"
+
+    return {
+        "severity": severity,
+        "exposure": exposure,
+        "controllability": controllability,
+        "confidence": confidence,
+        "rationale": str(
+            result.get(
+                "rationale",
+                "AI-generated candidate assessment for engineering review."
+            )
+        ).strip(),
+        "review_required": True,
+    }
+
+
+def recommend_requirement(
+    requirement_type,
+    system,
+    function,
+    malfunction,
+    hazard,
+    hazardous_event,
+    safety_goal,
+    candidate_asil,
+    source_requirement="",
+    source_rationale="",
+):
+    """Ask Qwen for an AI-assisted FSR/TSR recommendation."""
+
+    requirement_type = str(requirement_type or "FSR").upper()
+
+    prompt = f"""
+You are an automotive functional-safety engineering assistant.
+
+Generate ONE concise candidate {requirement_type}.
+
+SYSTEM:
+{system}
+
+FUNCTION:
+{function}
+
+MALFUNCTION:
+{malfunction}
+
+HAZARD:
+{hazard}
+
+HAZARDOUS EVENT:
+{hazardous_event}
+
+SAFETY GOAL:
+{safety_goal}
+
+CANDIDATE ASIL:
+{candidate_asil}
+
+EXISTING REQUIREMENT:
+{source_requirement}
+
+EXISTING RATIONALE:
+{source_rationale}
+
+Return ONLY valid JSON using EXACTLY this structure:
+
+{{
+  "recommendation": "One concise shall-statement requirement.",
+  "rationale": "Short engineering rationale.",
+  "verification_focus": "Short verification focus.",
+  "confidence": "HIGH"
+}}
+
+Rules:
+- Return exactly one requirement.
+- Use clear automotive safety engineering language.
+- Requirement should be testable/verifiable.
+- Do not assign ASIL.
+- Do not claim certification or compliance.
+- Do not add markdown.
+"""
+
+    result = _ask(
+        f"Generate one {requirement_type} recommendation.",
+        {
+            "requirement_type": requirement_type,
+            "system": system,
+            "function": function,
+            "malfunction": malfunction,
+            "hazard": hazard,
+            "hazardous_event": hazardous_event,
+            "safety_goal": safety_goal,
+            "candidate_asil": candidate_asil,
+            "source_requirement": source_requirement,
+            "source_rationale": source_rationale,
+            "prompt": prompt,
+        },
+        timeout=75,
+    )
+
+    if not isinstance(result, dict):
+        result = {}
+
+    def pick(*keys):
+        for key in keys:
+            value = result.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return ""
+
+    recommendation = pick(
+        "recommendation",
+        "Recommendation",
+        "requirement",
+        "Requirement",
+        "candidate_requirement",
+        "candidateRequirement",
+        "fsr",
+        "tsr",
+    )
+
+    rationale = pick(
+        "rationale",
+        "Rationale",
+        "engineering_rationale",
+        "engineeringRationale",
+        "reason",
+    )
+
+    verification_focus = pick(
+        "verification_focus",
+        "verificationFocus",
+        "Verification Focus",
+        "verification",
+        "test_focus",
+    )
+
+    confidence = pick(
+        "confidence",
+        "Confidence",
+    ).upper()
+
+    if confidence not in {"LOW", "MEDIUM", "HIGH"}:
+        confidence = "MEDIUM"
+
+    if not recommendation:
+        print(
+            f"[AI Recommendation] Empty {requirement_type} recommendation. "
+            f"Raw parsed keys: {list(result.keys())}"
+        )
+
+        return {
+            "recommendation": "",
+            "rationale": rationale,
+            "verification_focus": verification_focus,
+            "confidence": confidence,
+            "review_required": True,
+        }
+
+    return {
+        "recommendation": recommendation,
+        "rationale": rationale,
+        "verification_focus": verification_focus,
+        "confidence": confidence,
+        "review_required": True,
+    }
+

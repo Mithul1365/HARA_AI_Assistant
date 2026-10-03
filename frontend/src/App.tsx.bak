@@ -1,0 +1,258 @@
+﻿import { useState } from 'react';
+
+import Header from '@/components/Header';
+import Sidebar from '@/components/Sidebar';
+import Home from '@/screens/Home';
+import ItemDefinition from '@/screens/ItemDefinition';
+import HaraAnalysis from '@/screens/HaraAnalysis';
+import AsilAssessment from '@/screens/AsilAssessment';
+import Placeholder from '@/screens/Placeholder';
+
+import { type StepId } from '@/types/workflow';
+
+
+export interface DocumentData {
+  documentId: string;
+  documentName: string;
+  pdfHash: string;
+  pages: number;
+  chunks: number;
+}
+
+
+export interface ItemContext {
+  systemItem: string;
+  intendedFunction: string;
+  operationalScenario: string;
+  operatingConditions: string;
+}
+
+
+export interface HaraScenario {
+  number: number;
+  malfunction: string;
+  hazard: string;
+  event: string;
+  rationale: string;
+}
+
+
+function App() {
+
+  const [activeStep, setActiveStep] =
+    useState<StepId>('home');
+
+
+  const [documentData, setDocumentData] =
+    useState<DocumentData | null>(null);
+
+
+  const [itemContext, setItemContext] =
+    useState<ItemContext>({
+      systemItem: '',
+      intendedFunction: '',
+      operationalScenario: '',
+      operatingConditions: '',
+    });
+
+
+  const [haraScenarios, setHaraScenarios] =
+    useState<HaraScenario[]>([]);
+
+
+  const [selectedHaraScenario, setSelectedHaraScenario] =
+    useState<HaraScenario | null>(null);
+
+
+  /* =====================================================
+     STEP 1 â†’ STEP 2
+     ===================================================== */
+
+  const handleItemDefinitionContinue = (
+    document: DocumentData,
+    context: ItemContext
+  ) => {
+
+    setDocumentData(document);
+
+    setItemContext(context);
+
+    setActiveStep('hara-analysis');
+  };
+
+
+  /* =====================================================
+     STEP 2 â†’ STEP 3
+     ===================================================== */
+
+  const handleHaraContinue = (
+    scenario: HaraScenario
+  ) => {
+
+    setSelectedHaraScenario(scenario);
+
+    setActiveStep('asil-assessment');
+  };
+
+
+  /* =====================================================
+     STEP 3 â†’ STEP 4
+     ===================================================== */
+
+  const handleAsilContinue = () => {
+
+    setActiveStep('safety-goals');
+  };
+
+
+  /* =====================================================
+     SCREEN RENDER
+     ===================================================== */
+
+  const renderStep = () => {
+
+    switch (activeStep) {
+
+      case 'home':
+
+        return (
+          <Home
+            onStepClick={setActiveStep}
+          />
+        );
+
+
+      case 'item-definition':
+
+        return (
+          <ItemDefinition
+            initialDocumentData={
+              documentData
+            }
+
+            initialItemContext={
+              itemContext
+            }
+
+            onContinue={
+              handleItemDefinitionContinue
+            }
+          />
+        );
+
+
+      case 'hara-analysis':
+
+        return (
+          <HaraAnalysis
+            documentData={
+              documentData
+            }
+
+            itemContext={
+              itemContext
+            }
+
+            onPrevious={() =>
+              setActiveStep(
+                'item-definition'
+              )
+            }
+
+            onContinue={
+              handleHaraContinue
+            }
+
+            onScenariosLoaded={
+              setHaraScenarios
+            }
+
+            initialScenarios={
+              haraScenarios
+            }
+          />
+        );
+
+
+      case 'asil-assessment':
+
+        return (
+          <AsilAssessment
+
+            documentData={
+              documentData
+            }
+
+            itemContext={
+              itemContext
+            }
+
+            scenarios={
+              haraScenarios
+            }
+
+            selectedScenario={
+              selectedHaraScenario
+            }
+
+            onPrevious={() =>
+              setActiveStep(
+                'hara-analysis'
+              )
+            }
+
+            onContinue={
+              handleAsilContinue
+            }
+          />
+        );
+
+
+      default:
+
+        return (
+          <Placeholder
+            stepId={
+              activeStep
+            }
+          />
+        );
+
+    }
+
+  };
+
+
+  return (
+
+    <div className="h-screen flex flex-col bg-sval-bg overflow-hidden">
+
+      <Header />
+
+      <div className="flex flex-1 overflow-hidden">
+
+        <Sidebar
+          activeStep={
+            activeStep
+          }
+
+          onStepClick={
+            setActiveStep
+          }
+        />
+
+        <main className="flex-1 overflow-y-auto">
+
+          {renderStep()}
+
+        </main>
+
+      </div>
+
+    </div>
+
+  );
+}
+
+
+export default App;

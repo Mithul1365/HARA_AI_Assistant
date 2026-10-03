@@ -1,0 +1,36 @@
+import { Cpu } from 'lucide-react';
+
+export default function Header() {
+  return (
+    <header className="h-14 bg-tata-darker border-b border-tata-950 flex items-center justify-between px-6 shrink-0 z-30">
+      {/* Left: Logo + Title */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2.5">
+          {/* Tata-style logo mark */}
+          <div className="flex items-center justify-center w-8 h-8 rounded bg-white">
+            <span className="text-tata-darker font-bold text-sm tracking-tight">T</span>
+          </div>
+          <div className="leading-none">
+            <div className="text-white font-bold text-sm tracking-wide">TATA MOTORS</div>
+            <div className="text-tata-300 text-[10px] font-medium tracking-wider uppercase">Functional Safety</div>
+          </div>
+        </div>
+
+        <div className="h-8 w-px bg-tata-700/60" />
+
+        <div className="leading-tight">
+          <h1 className="text-white font-semibold text-[15px]">HARA AI Assistant</h1>
+          <p className="text-tata-300 text-[11px]">AI-powered Automotive Functional Safety Analysis</p>
+        </div>
+      </div>
+
+      {/* Right: Qwen3 badge */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-tata-800/80 border border-tata-700">
+          <Cpu className="w-3.5 h-3.5 text-tata-300" />
+          <span className="text-tata-200 text-[11px] font-medium">Powered by Qwen3 (Local)</span>
+        </div>
+      </div>
+    </header>
+  );
+}

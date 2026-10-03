@@ -55,8 +55,8 @@ def ask_qwen(prompt, summary_mode=False):
         "keep_alive": -1,
         "format": "json",
         "options": {
-            "num_predict": 140,
-            "num_ctx": 1536,
+            "num_predict": 180,
+            "num_ctx": 2048,
             "temperature": 0.80,
         },
     }
@@ -225,237 +225,6 @@ def _parse_qwen_hara(answer):
     return unique[:3]
 
 
-
-def ask_qwen_hara_batch(prompt, summary_mode=False):
-    """Generate three diverse HARA candidates in one Qwen call."""
-    start_time = time.time()
-
-    instruction = (
-        "Generate EXACTLY THREE materially different HARA candidates. "
-        "Keep every field very concise, preferably under 18 words. "
-        "Do not explain your reasoning outside the Rationale field. "
-        "Return ONLY valid JSON. "
-        "Use this exact structure: "
-        '{"candidates":[{"Potential Malfunction":"...",'
-        '"Potential Hazard":"...",'
-        '"Hazardous Event":"...",'
-        '"Rationale":"..."},'
-        '{"Potential Malfunction":"...",'
-        '"Potential Hazard":"...",'
-        '"Hazardous Event":"...",'
-        '"Rationale":"..."},'
-        '{"Potential Malfunction":"...",'
-        '"Potential Hazard":"...",'
-        '"Hazardous Event":"...",'
-        '"Rationale":"..."}]} '
-        "The three candidates MUST use different failure mechanisms. "
-        "Prioritize returning all three candidates over detailed wording. "
-        "Do not add markdown or explanation outside JSON."
-    )
-
-    data = {
-        "model": MODEL_NAME,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are an automotive functional-safety engineering assistant. "
-                    "Generate three distinct HARA candidates."
-                ),
-            },
-            {
-                "role": "user",
-                "content": "/no_think\n" + instruction + "\n\n" + prompt,
-            },
-        ],
-        "stream": False,
-        "think": False,
-        "keep_alive": -1,
-        "format": "json",
-        "options": {
-            "num_predict": 300,
-            "num_ctx": 2048,
-            "temperature": 0.2,
-        },
-    }
-
-    request = urllib.request.Request(
-        OLLAMA_URL,
-        data=json.dumps(data).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
-        print(f"[Qwen] Batch request failed: {exc}")
-        return []
-
-    message = result.get("message", {})
-    answer = str(message.get("content", "")).strip()
-
-    if not answer:
-        answer = str(result.get("response", "")).strip()
-
-    candidates = []
-
-    # --------------------------------------------------------
-    # ROBUST QWEN JSON PARSER
-    # --------------------------------------------------------
-    # Qwen may return:
-    #   1. normal JSON
-    #   2. JSON inside markdown fences
-    #   3. a JSON object with one candidate
-    #   4. slightly different field-name casing
-    #   5. truncated/embedded JSON
-    # --------------------------------------------------------
-
-    cleaned = answer.strip()
-
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-
-    parsed_objects = []
-
-    # First try the complete response.
-    try:
-        parsed_objects.append(json.loads(cleaned))
-    except Exception:
-        pass
-
-    # If complete parsing fails, locate JSON objects/arrays inside the response.
-    if not parsed_objects:
-        decoder = json.JSONDecoder()
-
-        for index, char in enumerate(cleaned):
-            if char not in "{[":
-                continue
-
-            try:
-                obj, consumed = decoder.raw_decode(cleaned[index:])
-                parsed_objects.append(obj)
-                break
-            except Exception:
-                continue
-
-    for parsed in parsed_objects:
-
-        # Standard batch response:
-        # {"candidates": [...]}
-        if isinstance(parsed, dict):
-            raw_candidates = parsed.get("candidates", [])
-
-            # Sometimes Qwen may return candidates as a JSON string.
-            if isinstance(raw_candidates, str):
-                try:
-                    raw_candidates = json.loads(raw_candidates)
-                except Exception:
-                    raw_candidates = []
-
-            # Sometimes it returns one candidate directly.
-            if not raw_candidates and (
-                parsed.get("Potential Malfunction")
-                or parsed.get("potential_malfunction")
-                or parsed.get("malfunction")
-            ):
-                raw_candidates = [parsed]
-
-        elif isinstance(parsed, list):
-            raw_candidates = parsed
-
-        else:
-            raw_candidates = []
-
-        if isinstance(raw_candidates, dict):
-            raw_candidates = [raw_candidates]
-
-        if not isinstance(raw_candidates, list):
-            raw_candidates = []
-
-        for item in raw_candidates:
-            if not isinstance(item, dict):
-                continue
-
-            def pick(*keys):
-                for key in keys:
-                    value = item.get(key)
-                    if value is not None and str(value).strip():
-                        return str(value).strip()
-                return ""
-
-            malfunction = pick(
-                "Potential Malfunction",
-                "potential_malfunction",
-                "Potential malfunction",
-                "malfunction",
-            )
-
-            hazard = pick(
-                "Potential Hazard",
-                "potential_hazard",
-                "Potential hazard",
-                "hazard",
-            )
-
-            hazardous_event = pick(
-                "Hazardous Event",
-                "hazardous_event",
-                "Hazardous event",
-                "hazardousEvent",
-                "event",
-            )
-
-            rationale = pick(
-                "Rationale",
-                "rationale",
-                "Engineering Rationale",
-                "engineering_rationale",
-            )
-
-            if malfunction and hazard and hazardous_event and rationale:
-                candidates.append(
-                    {
-                        "malfunction": malfunction,
-                        "hazard": hazard,
-                        "hazardous_event": hazardous_event,
-                        "rationale": rationale,
-                    }
-                )
-
-    # Remove exact duplicates.
-    unique_candidates = []
-    seen = set()
-
-    for candidate in candidates:
-        signature = (
-            candidate["malfunction"].lower().strip(),
-            candidate["hazard"].lower().strip(),
-            candidate["hazardous_event"].lower().strip(),
-        )
-
-        if signature not in seen:
-            seen.add(signature)
-            unique_candidates.append(candidate)
-
-    candidates = unique_candidates[:3]
-
-    if not candidates:
-        print("[Qwen] No valid batch candidates parsed.")
-        print("[Qwen] Raw response preview:")
-        print(answer[:2500])
-
-    print(
-        f"[Qwen] batch HARA generation total="
-        f"{time.time() - start_time:.2f}s "
-        f"candidates={len(candidates)}"
-    )
-
-    return candidates[:3]
-
-
 def _detailed_hara(system, function, scenario, evidence):
     return (
         "AI HARA generation failed. "
@@ -546,18 +315,16 @@ def _candidate_is_too_similar(candidate, accepted_candidates, threshold=0.85):
 
 
 def analyze_with_qwen(system, function, scenario, evidence, summary_mode=False):
-    """Generate three diverse AI-generated HARA candidates with one Qwen call."""
+    """Generate exactly three independent AI-generated HARA candidates."""
     start_time = time.time()
 
     evidence_lines = []
-
     for i, item in enumerate(evidence[:5], 1):
         source = item.get("source", "Engineering Document")
         page = item.get("page", "?")
-        item_text = " ".join(str(item.get("text", "")).split())[:700]
-
+        text = " ".join(str(item.get("text", "")).split())[:700]
         evidence_lines.append(
-            f"Evidence {i} | Source: {source} | Page: {page}\n{item_text}"
+            f"Evidence {i} | Source: {source} | Page: {page}\n{text}"
         )
 
     evidence_text = "\n\n".join(evidence_lines)
@@ -583,49 +350,146 @@ Rules:
 - Do not invent sources, page numbers, measurements, or unsupported facts.
 - Do not assign ASIL.
 - Do not claim ISO 26262 compliance or safety approval.
-- Generate three materially different failure mechanisms.
 """
 
+    candidates = []
+    used_signatures = set()
+
+    angles = [
+        (
+            "Analyze a MISSED-DETECTION failure mode. "
+            "The radar fails to detect, loses, or becomes unable to detect a relevant object. "
+            "Focus on loss of sensing or unavailable detection."
+        ),
+        (
+            "Analyze an INCORRECT-MEASUREMENT failure mode. "
+            "The radar detects an object but provides incorrect range, velocity, angle, "
+            "classification, or target information. "
+            "Do NOT describe complete loss of detection."
+        ),
+        (
+            "Analyze an INCORRECT-FAULT-RESPONSE failure mode. "
+            "The radar detects or experiences a safety-relevant fault but responds incorrectly, "
+            "delayed, intermittently, or fails to diagnose/handle the fault safely. "
+            "Do NOT reuse missed detection or incorrect measurement as the core malfunction."
+        ),
+    ]
+
     try:
-        candidates = ask_qwen_hara_batch(
-            base_prompt,
-            summary_mode=summary_mode
-        )
+        # Up to 6 AI calls: normally 3, with retries if Qwen duplicates a candidate.
+        for candidate_number in range(1, 4):
+            accepted = False
+            last_valid_candidate = None
 
-        valid = []
-
-        for candidate in candidates:
-            if all(
-                candidate.get(key)
-                for key in (
-                    "malfunction",
-                    "hazard",
-                    "hazardous_event",
-                    "rationale",
+            for attempt in range(1, 3):
+                diversity = (
+                    f"\\nGenerate candidate {candidate_number} of 3. "
+                    f"{angles[candidate_number - 1]} "
+                    "It MUST represent a materially different failure mechanism "
+                    "from every previously accepted candidate. "
+                    "Do not merely reword an existing candidate. "
+                    "Do not reuse the same core malfunction. "
+                    "Do not reuse the same causal chain. "
+                    "Change the type of failure being analyzed while remaining "
+                    "strictly grounded in the uploaded engineering evidence."
                 )
-            ):
-                valid.append(candidate)
 
-        unique = []
-        seen = set()
+                if attempt > 1:
+                    diversity += (
+                        f"\\nThis is diversity retry {attempt}. "
+                        "The previous answer was too similar to an earlier candidate. "
+                        "Generate a genuinely different failure mechanism now. "
+                        "Changing only wording is NOT acceptable."
+                    )
 
-        for candidate in valid:
-            signature = (
-                candidate["malfunction"].lower().strip(),
-                candidate["hazard"].lower().strip(),
-                candidate["hazardous_event"].lower().strip(),
-            )
+                if candidates:
+                    diversity += (
+                        "\nPreviously accepted candidates. "
+                        "The new candidate must represent a materially different "
+                        "failure mechanism, not merely different wording. "
+                        "Do not copy or paraphrase these candidates:\n"
+                        + "\n".join(
+                            [
+                                f"- Malfunction: {item.get('malfunction', '')}\n"
+                                f"  Hazard: {item.get('hazard', '')}\n"
+                                f"  Hazardous Event: {item.get('hazardous_event', '')}"
+                                for item in candidates
+                            ]
+                        )
+                    )
 
-            if signature not in seen:
-                seen.add(signature)
-                unique.append(candidate)
+                answer = ask_qwen(
+                    base_prompt + diversity,
+                    summary_mode=summary_mode
+                )
 
-        if not unique:
-            raise ValueError("Qwen did not return a valid HARA candidate.")
+                parsed = _parse_qwen_hara(answer)
+
+                if not parsed:
+                    print(
+                        f"[HARA] Candidate {candidate_number}, attempt {attempt}: "
+                        "Qwen response could not be parsed."
+                    )
+                    continue
+
+                candidate = parsed[0]
+
+                required_fields = (
+                    candidate.get("malfunction", ""),
+                    candidate.get("hazard", ""),
+                    candidate.get("hazardous_event", ""),
+                    candidate.get("rationale", ""),
+                )
+
+                if not all(str(value).strip() for value in required_fields):
+                    print(
+                        f"[HARA] Candidate {candidate_number}, attempt {attempt}: "
+                        "required HARA field missing; retrying AI generation."
+                    )
+                    continue
+
+                last_valid_candidate = candidate
+
+                signature = (
+                    candidate["malfunction"].lower().strip(),
+                    candidate["hazard"].lower().strip(),
+                    candidate["hazardous_event"].lower().strip(),
+                )
+
+                if (
+                    signature in used_signatures
+                    or _candidate_is_too_similar(candidate, candidates)
+                ):
+                    print(
+                        f"[HARA] Candidate {candidate_number}, attempt {attempt}: "
+                        "duplicate or materially similar; retrying AI generation."
+                    )
+                    continue
+
+                candidates.append(candidate)
+                used_signatures.add(signature)
+                accepted = True
+                break
+
+            if not accepted:
+                if last_valid_candidate is not None:
+                    print(
+                        f"[HARA] Candidate {candidate_number}: "
+                        "using latest valid candidate after diversity retries."
+                    )
+                    candidates.append(last_valid_candidate)
+                    used_signatures.add(
+                        _candidate_signature(last_valid_candidate)
+                    )
+                    accepted = True
+                else:
+                    raise ValueError(
+                        f"Qwen could not generate candidate {candidate_number}."
+                    )
 
         blocks = []
 
-        for i, candidate in enumerate(unique[:3], 1):
+        for i, candidate in enumerate(candidates, 1):
             blocks.append(
                 f"Scenario {i}\n"
                 f"Potential Malfunction: {candidate['malfunction']}\n"
@@ -637,9 +501,8 @@ Rules:
         result = "\n\n".join(blocks)
 
         print(
-            f"[HARA] Qwen3 batch generation total="
-            f"{time.time() - start_time:.2f}s "
-            f"valid_candidates={len(unique)}"
+            f"[HARA] Qwen3 3-candidate generation total="
+            f"{time.time() - start_time:.2f}s"
         )
 
         return result
@@ -652,3 +515,10 @@ Rules:
             "No hard-coded HARA candidates were substituted. "
             f"Reason: {exc}"
         )
+
+
+
+
+
+
+

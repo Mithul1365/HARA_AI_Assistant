@@ -1,0 +1,7 @@
+{
+  "document_id": "ab8fa3d0-9354-4b13-8e91-f631777c97b1",
+  "system": "Electronic Braking System (EBS)",
+  "function": "Decelerate and stop the vehicle according to driver braking demand.",
+  "scenario": "Vehicle braking during normal driving, highway driving, traffic conditions, and emergency braking.",
+  "operating_conditions": "Vehicle speeds from 0 to 120 km/h, dry and wet roads, day and night operation, ambient temperature -20°C to +50°C."
+}

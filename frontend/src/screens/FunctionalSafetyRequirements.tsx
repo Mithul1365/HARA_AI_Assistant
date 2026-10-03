@@ -1,0 +1,429 @@
+﻿import { useState } from 'react';
+import AiRequirementRecommendation from '@/components/AiRequirementRecommendation';
+
+import type {
+  ItemContext,
+  HaraScenario,
+} from '@/App';
+
+interface AsilResult {
+  asil: string;
+  rationale: string;
+}
+
+interface SafetyGoalResult {
+  id?: string;
+  safety_goal: string;
+  candidate_asil: string;
+  hazard: string;
+  hazardous_event: string;
+  malfunction: string;
+  system?: string;
+  function?: string;
+}
+
+interface FSRResult {
+  id: string;
+  requirement: string;
+  rationale: string;
+  candidate_asil: string;
+  review_status: string;
+  hazard: string;
+  hazardous_event: string;
+  system: string;
+  function: string;
+  malfunction: string;
+  safety_goal: string;
+}
+
+interface FunctionalSafetyRequirementsProps {
+  itemContext: ItemContext;
+  scenario: HaraScenario | null;
+  asilResult: AsilResult | null;
+  safetyGoal: SafetyGoalResult | null;
+  initialResults?: FSRResult[];
+  onPrevious: () => void;
+  onGenerated: (results: FSRResult[]) => void;
+  onContinue: () => void;
+}
+
+function FunctionalSafetyRequirements({
+  itemContext,
+  scenario,
+  asilResult,
+  safetyGoal,
+  initialResults = [],
+  onPrevious,
+  onGenerated,
+  onContinue,
+}: FunctionalSafetyRequirementsProps) {
+
+  const [results, setResults] =
+    useState<FSRResult[]>(initialResults);
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [error, setError] =
+    useState('');
+
+  const generateFSRs = async () => {
+
+    if (!scenario) {
+      setError('HARA scenario is not available.');
+      return;
+    }
+
+    if (!asilResult?.asil) {
+      setError('ASIL Assessment is not available.');
+      return;
+    }
+
+    if (!safetyGoal?.safety_goal) {
+      setError('Please generate the Safety Goal first.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+
+      const response = await fetch(
+        'http://127.0.0.1:8000/api/fsr/generate',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            system: itemContext.systemItem,
+            function: itemContext.intendedFunction,
+            malfunction: scenario.malfunction,
+            hazard: scenario.hazard,
+            hazardous_event: scenario.event,
+            safety_goal: safetyGoal.safety_goal,
+            candidate_asil: asilResult.asil,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `FSR API failed with status ${response.status}`
+        );
+      }
+
+      const data = await response.json();
+
+      if (!data.success || !Array.isArray(data.fsr_results)) {
+        throw new Error(
+          data.message || 'FSR generation failed.'
+        );
+      }
+
+      setResults(data.fsr_results);
+      onGenerated(data.fsr_results);
+
+    } catch (err) {
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to generate FSRs.'
+      );
+
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-full bg-slate-50 p-6 lg:p-8">
+
+      <div className="mx-auto max-w-6xl">
+
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-slate-900">
+            5. Functional Safety Requirements
+          </h1>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Generate candidate Functional Safety Requirements from
+            the Safety Goal and HARA context.
+          </p>
+        </div>
+
+        <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-5">
+
+          <div className="text-sm font-semibold text-blue-900">
+            FSR Traceability Context
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+
+            <div className="rounded-lg bg-white p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                System
+              </div>
+
+              <div className="mt-1 text-sm text-slate-800">
+                {itemContext.systemItem}
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-white p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Candidate ASIL
+              </div>
+
+              <div className="mt-1 text-lg font-bold text-blue-700">
+                {asilResult?.asil || 'Not available'}
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-white p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Safety Goal
+              </div>
+
+              <div className="mt-1 text-sm font-medium text-slate-800">
+                {safetyGoal?.id || 'Not generated'}
+              </div>
+            </div>
+
+          </div>
+
+          <div className="mt-4 rounded-lg bg-white p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Safety Goal
+            </div>
+
+            <div className="mt-1 text-sm leading-6 text-slate-800">
+              {safetyGoal?.safety_goal || 'Not generated'}
+            </div>
+          </div>
+
+        </div>
+
+        {results.length === 0 && (
+          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+
+            <h2 className="text-lg font-semibold text-slate-900">
+              Generate Functional Safety Requirements
+            </h2>
+
+            <p className="mt-2 text-sm text-slate-500">
+              The existing FSR engine will generate candidate
+              requirements linked to the current Safety Goal.
+            </p>
+
+            <button
+              type="button"
+              onClick={generateFSRs}
+              disabled={loading || !safetyGoal}
+              className="mt-6 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading
+                ? 'Generating FSRs...'
+                : 'Generate Functional Safety Requirements'}
+            </button>
+
+            {error && (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {results.length > 0 && (
+          <div className="space-y-5">
+
+            <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+              <div className="text-sm font-semibold text-green-800">
+                {results.length} candidate Functional Safety Requirement(s)
+                generated successfully
+              </div>
+            </div>
+
+            {results.map((fsr, index) => (
+
+              <div
+                key={fsr.id || index}
+                className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+              >
+
+                <div className="flex items-center justify-between gap-4">
+
+                  <h2 className="text-lg font-bold text-slate-900">
+                    {fsr.id || `FSR-${String(index + 1).padStart(3, '0')}`}
+                  </h2>
+
+                  <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
+                    ASIL {fsr.candidate_asil}
+                  </span>
+
+                </div>
+
+                <div className="mt-5 rounded-lg border border-blue-100 bg-blue-50 p-5">
+
+                  <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                    Functional Safety Requirement
+                  </div>
+
+                  <p className="mt-2 text-base leading-7 text-slate-900">
+                    {fsr.requirement}
+                  </p>
+
+                </div>
+
+                <div className="mt-5 rounded-lg bg-slate-50 p-4">
+
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Rationale
+                  </div>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                    {fsr.rationale}
+                  </p>
+
+                </div>
+
+                <div className="mt-5 grid gap-4 md:grid-cols-3">
+
+                  <div className="rounded-lg border border-slate-200 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Review Status
+                    </div>
+
+                    <div className="mt-1 text-sm font-medium text-slate-800">
+                      {fsr.review_status}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Source Hazard
+                    </div>
+
+                    <div className="mt-1 text-sm text-slate-800">
+                      {fsr.hazard}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Hazardous Event
+                    </div>
+
+                    <div className="mt-1 text-sm text-slate-800">
+                      {fsr.hazardous_event}
+                    </div>
+                  </div>
+
+                </div>
+
+                <details className="mt-5 rounded-lg border border-slate-200 p-4">
+
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                    Traceability Details
+                  </summary>
+
+                  <div className="mt-4 grid gap-3 text-sm text-slate-700">
+
+                    <div>
+                      <span className="font-semibold">System:</span>{' '}
+                      {fsr.system}
+                    </div>
+
+                    <div>
+                      <span className="font-semibold">Function:</span>{' '}
+                      {fsr.function}
+                    </div>
+
+                    <div>
+                      <span className="font-semibold">Malfunction:</span>{' '}
+                      {fsr.malfunction}
+                    </div>
+
+                    <div>
+                      <span className="font-semibold">Safety Goal:</span>{' '}
+                      {fsr.safety_goal}
+                    </div>
+
+                  </div>
+
+                </details>
+
+                <AiRequirementRecommendation
+                  type="FSR"
+                  context={{
+                    system: fsr.system,
+                    function: fsr.function,
+                    malfunction: fsr.malfunction,
+                    hazard: fsr.hazard,
+                    hazardous_event: fsr.hazardous_event,
+                    safety_goal: fsr.safety_goal,
+                    candidate_asil: fsr.candidate_asil,
+                    source_requirement: fsr.requirement,
+                    source_rationale: fsr.rationale,
+                  }}
+                  onUse={(value) => {
+                    const updated = results.map((item) =>
+                      item.id === fsr.id
+                        ? {
+                            ...item,
+                            requirement: value,
+                          }
+                        : item
+                    );
+
+                    setResults(updated);
+                    onGenerated(updated);
+                  }}
+                />
+
+
+              </div>
+
+            ))}
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800">
+              These FSRs are AI-assisted candidate drafts. They must be
+              reviewed, refined and approved by an authorized
+              functional-safety engineer before being used as official
+              safety requirements.
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-200 pt-5">
+
+              <button
+                type="button"
+                onClick={onPrevious}
+                className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                ← Previous
+              </button>
+
+              <button
+                type="button"
+                onClick={onContinue}
+                className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
+              >
+                Continue to TSR →
+              </button>
+
+            </div>
+
+          </div>
+        )}
+
+      </div>
+
+    </div>
+  );
+}
+
+export default FunctionalSafetyRequirements;

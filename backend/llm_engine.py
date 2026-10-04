@@ -274,7 +274,7 @@ def ask_qwen_hara_batch(prompt, summary_mode=False):
         "format": "json",
         "options": {
             "num_predict": 300,
-            "num_ctx": 2048,
+            "num_ctx": 1536,
             "temperature": 0.2,
         },
     }
@@ -652,3 +652,5 @@ Rules:
             "No hard-coded HARA candidates were substituted. "
             f"Reason: {exc}"
         )
+
+

@@ -150,6 +150,31 @@ function App() {
     setActiveStep('safety-goals');
   };
 
+  const startNewWorkflow = () => {
+    setActiveStep('item-definition');
+
+    setDocumentData(null);
+
+    setItemContext({
+      systemItem: '',
+      intendedFunction: '',
+      operationalScenario: '',
+      operatingConditions: '',
+    });
+
+    setHaraScenarios([]);
+    setSelectedHaraScenario(null);
+
+    // Clear workflow-specific browser persistence.
+    try {
+      localStorage.removeItem('hara_ai_assistant_selected_hara_scenario');
+      localStorage.removeItem('hara_ai_assistant_asil_state');
+      localStorage.removeItem('hara_ai_assistant_verification_draft');
+    } catch {
+      // Ignore localStorage errors.
+    }
+  };
+
   const renderStep = () => {
 
     switch (activeStep) {
@@ -185,7 +210,8 @@ function App() {
             fsrResults={fsrResults}
             tsrResults={tsrResults}
             onPrevious={() => setActiveStep('verification-evidence')}
-            onComplete={() => setActiveStep('review-audit')}
+            onComplete={() => setActiveStep('hara-analysis')}
+            onNewWorkflow={startNewWorkflow}
           />
         );
       case 'verification-evidence':
@@ -463,5 +489,8 @@ function App() {
 }
 
 export default App;
+
+
+
 
 

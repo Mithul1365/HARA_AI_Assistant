@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ClipboardCheck, History, ShieldCheck, UserCheck } from 'lucide-react';
 import type { ItemContext, HaraScenario } from '@/App';
 
@@ -11,6 +11,7 @@ interface ReviewAuditProps {
   tsrResults: any[];
   onPrevious: () => void;
   onComplete: () => void;
+  onNewWorkflow: () => void;
 }
 
 interface ReviewRecord {
@@ -42,6 +43,7 @@ export default function ReviewAudit({
   tsrResults,
   onPrevious,
   onComplete,
+  onNewWorkflow,
 }: ReviewAuditProps) {
   const [decision, setDecision] = useState('PENDING REVIEW');
   const [reviewerName, setReviewerName] = useState('');
@@ -120,6 +122,48 @@ export default function ReviewAudit({
     }
   };
 
+  const clearReviewAudit = async () => {
+    if (!window.confirm('Clear all Review & Audit data for this workflow?')) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage('');
+
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/review-audit/clear', {
+        method: 'DELETE',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.detail || 'Unable to clear Review & Audit data.');
+      }
+
+      setDecision('PENDING REVIEW');
+      setReviewerName('');
+      setComment('');
+      setLatestReview(null);
+      setAuditHistory([]);
+      setMessage('Review & Audit data cleared successfully.');
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to clear Review & Audit data.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const systemItem =
+    itemContext?.systemItem?.trim() ||
+    (fsrResults?.[0]?.system as string | undefined)?.trim() ||
+    (safetyGoal?.system as string | undefined)?.trim() ||
+    'Not defined';
+
   const asilValue =
     asilResult?.candidate_asil ||
     asilResult?.asil ||
@@ -187,9 +231,11 @@ export default function ReviewAudit({
             </p>
           </div>
 
-          <div className={`rounded-full border px-4 py-2 text-sm font-semibold ${statusClass}`}>
-            {decision}
-          </div>
+          {decision !== 'PENDING REVIEW' && (
+              <div className={`rounded-full border px-4 py-2 text-sm font-semibold ${statusClass}`}>
+                {decision}
+              </div>
+            )}
         </div>
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -208,7 +254,7 @@ export default function ReviewAudit({
               <div className="rounded-lg bg-slate-50 p-4">
                 <div className="text-xs font-medium text-slate-500">System / Item</div>
                 <div className="mt-1 text-sm font-semibold text-slate-900">
-                  {itemContext?.system || 'Automotive Corner Radar System'}
+                  {systemItem}
                 </div>
               </div>
 
@@ -296,6 +342,15 @@ export default function ReviewAudit({
               >
                 Refresh
               </button>
+
+                <button
+                  type="button"
+                  onClick={clearReviewAudit}
+                  disabled={saving}
+                  className="rounded-lg border border-red-300 bg-white px-5 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Clear Review & Audit
+                </button>
             </div>
 
             {message && (
@@ -362,27 +417,48 @@ export default function ReviewAudit({
               </div>
             )}
           </div>
-        </div>
+        </div>          <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-5">
+            <button
+              type="button"
+              onClick={onPrevious}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              ← Previous
+            </button>
 
-        <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-5">
-          <button
-            type="button"
-            onClick={onPrevious}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            ← Previous
-          </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onNewWorkflow}
+                className="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-5 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+              >
+                New Workflow
+              </button>
 
-          <button
-            type="button"
-            onClick={completeWorkflow}
-            disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Complete Workflow →
-          </button>
-        </div>
+              <button
+                type="button"
+                onClick={completeWorkflow}
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Complete Workflow →
+              </button>
+            </div>
+          </div>
       </div>
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,5 +1,6 @@
 ﻿from pathlib import Path
 from typing import Dict, Any, List, Optional
+import time
 import hashlib
 import pickle
 import uuid
@@ -247,6 +248,9 @@ async def upload_document(
 
         pdf_file = BytesIO(pdf_bytes)
 
+        _upload_t0 = time.perf_counter()
+        _extract_t0 = time.perf_counter()
+
         pages = extract_text_from_pdf(
             pdf_file
         )
@@ -264,9 +268,11 @@ async def upload_document(
         # Create chunks using EXISTING chunker
         # ----------------------------------------------------
 
+        _chunk_t0 = time.perf_counter()
         chunks = create_chunks(
             pages
         )
+        print(f"[PERF] Chunking: {time.perf_counter() - _chunk_t0:.2f}s")
 
         if not chunks:
             raise HTTPException(
@@ -382,6 +388,8 @@ async def upload_document(
                     chunks
                 )
 
+                print(f"[PERF] FAISS creation: {time.perf_counter() - _index_t0:.2f}s")
+
                 if vector_index is not None:
 
                     vector_index_created = True
@@ -416,6 +424,8 @@ async def upload_document(
                 vector_index = None
 
         # ----------------------------------------------------
+        print(f"[PERF] TOTAL upload processing: {time.perf_counter() - _upload_t0:.2f}s")
+
         # SAVE DOCUMENT IN MEMORY
         # ----------------------------------------------------
 
@@ -1045,6 +1055,7 @@ def generate_tsr_api(request: TSRRequest):
 @app.on_event("startup")
 def startup_event():
 
+
     print(
         ""
     )
@@ -1571,3 +1582,9 @@ def ai_requirement_recommend(
                 f"{exc}"
             ),
         )
+
+
+
+
+
+

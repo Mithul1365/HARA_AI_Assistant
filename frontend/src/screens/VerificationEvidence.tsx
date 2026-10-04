@@ -266,7 +266,7 @@ export default function VerificationEvidence({
             Verification Context
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            {itemContext.system} ? {scenario?.number || 'Selected HARA scenario'}
+            {itemContext.systemItem || 'Not defined'} — Scenario {scenario?.number || 'Selected'}
           </p>
         </div>
 

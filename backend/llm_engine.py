@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 import time
 import urllib.request
@@ -56,7 +56,7 @@ def ask_qwen(prompt, summary_mode=False):
         "format": "json",
         "options": {
             "num_predict": 140,
-            "num_ctx": 1536,
+            "num_ctx": 1024,
             "temperature": 0.80,
         },
     }
@@ -274,8 +274,8 @@ def ask_qwen_hara_batch(prompt, summary_mode=False):
         "format": "json",
         "options": {
             "num_predict": 300,
-            "num_ctx": 1536,
-            "temperature": 0.2,
+            "num_ctx": 1024,
+            "temperature": 0,
         },
     }
 
@@ -551,10 +551,10 @@ def analyze_with_qwen(system, function, scenario, evidence, summary_mode=False):
 
     evidence_lines = []
 
-    for i, item in enumerate(evidence[:5], 1):
+    for i, item in enumerate(evidence[:3], 1):
         source = item.get("source", "Engineering Document")
         page = item.get("page", "?")
-        item_text = " ".join(str(item.get("text", "")).split())[:700]
+        item_text = " ".join(str(item.get("text", "")).split())[:350]
 
         evidence_lines.append(
             f"Evidence {i} | Source: {source} | Page: {page}\n{item_text}"

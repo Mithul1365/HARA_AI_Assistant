@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 
 import type {
   ItemContext,
@@ -59,9 +59,13 @@ function FunctionalSafetyRequirements({
   onGenerated,
   onContinue,
 }: FunctionalSafetyRequirementsProps) {
-
   const [results, setResults] =
-    useState<FSRResult[]>(initialResults);
+  useState<FSRResult[]>(initialResults);
+  useEffect(() => {
+    if (initialResults.length > 0) {
+      setResults(initialResults);
+    }
+  }, [initialResults]);
 
   const [loading, setLoading] =
     useState(false);
@@ -103,8 +107,9 @@ function FunctionalSafetyRequirements({
     );
 
     setResults(updated);
-    onGenerated(updated);
-  };
+
+   onGenerated(updated);
+     };
 
   /*
    * ------------------------------------------------------------
@@ -139,6 +144,7 @@ function FunctionalSafetyRequirements({
 
     setLoading(true);
     setError('');
+    
 
     try {
 
@@ -194,13 +200,10 @@ function FunctionalSafetyRequirements({
         );
       }
 
-      setResults(
-        data.fsr_results
-      );
+      setResults(data.fsr_results);
 
-      onGenerated(
-        data.fsr_results
-      );
+
+       onGenerated(data.fsr_results);
 
     } catch (err) {
 
@@ -439,7 +442,7 @@ function FunctionalSafetyRequirements({
                 </div>
 
                 {/* ---------------------------------------------
-                    REQUIREMENT — CONTROLLED FIELD
+                    REQUIREMENT - CONTROLLED FIELD
                 ---------------------------------------------- */}
 
                 <div className="mt-5">
@@ -546,7 +549,7 @@ function FunctionalSafetyRequirements({
                 <details className="mt-5 rounded-lg border border-slate-200">
 
                   <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                    🔗 Traceability Details
+                    Traceability Details
                   </summary>
 
                   <div className="grid gap-4 border-t border-slate-200 p-4 md:grid-cols-2">
@@ -742,7 +745,7 @@ function FunctionalSafetyRequirements({
             onClick={onPrevious}
             className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
-            ← Previous
+            &lt;- Previous
           </button>
 
           <button
@@ -751,7 +754,7 @@ function FunctionalSafetyRequirements({
             disabled={results.length === 0}
             className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Continue to TSR →
+            Continue to TSR &#8594;
           </button>
 
         </div>
@@ -763,3 +766,4 @@ function FunctionalSafetyRequirements({
 }
 
 export default FunctionalSafetyRequirements;
+

@@ -84,97 +84,168 @@ def generate_tsr(
         ]
 
     elif "braking" in system_lower or "brake" in system_lower or "emb" in system_lower:
-        tsrs = [
-            {
-                "id": "TSR-001",
-                "requirement": (
-                    "The braking control unit shall monitor safety-relevant "
-                    "braking signals and detect specified faults within the "
-                    "defined diagnostic time."
-                ),
-                "rationale": (
-                    "Technical monitoring supports detection of failures "
-                    "that may result in loss of braking capability."
-                )
-            },
-            {
-                "id": "TSR-002",
-                "requirement": (
-                    "The braking system shall transition to the defined safe "
-                    "braking state when a critical safety-relevant fault is detected."
-                ),
-                "rationale": (
-                    "A defined technical reaction helps maintain safe "
-                    "braking behavior after a critical fault."
-                )
-            },
-            {
-                "id": "TSR-003",
-                "requirement": (
-                    "The braking control path shall prevent unintended brake "
-                    "commands caused by detected safety-relevant faults."
-                ),
-                "rationale": (
-                    "Command inhibition reduces the risk of unexpected "
-                    "vehicle deceleration."
-                )
-            }
-        ]
+        # -------------------------------------------------
+        # FSR-SPECIFIC EMB / BRAKING TSRs
+        # -------------------------------------------------
 
-    elif "driver monitoring" in system_lower or "dms" in system_lower:
-        tsrs = [
-            {
-                "id": "TSR-001",
-                "requirement": (
-                    "The DMS processing unit shall monitor driver-state "
-                    "signals and identify the defined distraction or "
-                    "drowsiness conditions."
-                ),
-                "rationale": (
-                    "Technical driver-state monitoring supports the linked FSR."
-                )
-            },
-            {
-                "id": "TSR-002",
-                "requirement": (
-                    "The DMS shall issue the defined safety indication or "
-                    "intervention when the specified driver-state threshold is reached."
-                ),
-                "rationale": (
-                    "A defined technical response supports mitigation of "
-                    "the identified hazardous event."
-                )
-            }
-        ]
+        if "safe" in fsr_lower or "transition" in fsr_lower:
+            tsrs = [
+                {
+                    "id": "TSR-001",
+                    "requirement": (
+                        "The braking control unit shall detect critical "
+                        "safety-relevant faults and initiate the defined "
+                        "safe braking state."
+                    ),
+                    "rationale": (
+                        "Timely fault reaction supports transition to a "
+                        "controlled braking condition."
+                    )
+                },
+                {
+                    "id": "TSR-002",
+                    "requirement": (
+                        "The braking control unit shall inhibit the affected "
+                        "motor-control output when a critical braking fault "
+                        "is confirmed."
+                    ),
+                    "rationale": (
+                        "Inhibiting the affected control path prevents continued "
+                        "unsafe actuator operation."
+                    )
+                },
+                {
+                    "id": "TSR-003",
+                    "requirement": (
+                        "The braking control unit shall maintain the defined "
+                        "safe braking state until the critical fault is "
+                        "cleared or the system enters the specified recovery state."
+                    ),
+                    "rationale": (
+                        "Maintaining a controlled state prevents premature "
+                        "return to potentially unsafe operation."
+                    )
+                }
+            ]
 
-    elif "adas" in system_lower or "advanced driver" in system_lower:
-        tsrs = [
-            {
-                "id": "TSR-001",
-                "requirement": (
-                    "The ADAS control unit shall monitor safety-relevant "
-                    "sensor and control inputs and detect specified failures "
-                    "within the defined diagnostic time."
-                ),
-                "rationale": (
-                    "Monitoring supports detection of failures that could "
-                    "result in unsafe assistance behavior."
-                )
-            },
-            {
-                "id": "TSR-002",
-                "requirement": (
-                    "The ADAS control unit shall inhibit the affected "
-                    "assistance function or transition it to the defined "
-                    "safe state when a critical failure is detected."
-                ),
-                "rationale": (
-                    "Technical degradation or safe-state behavior reduces "
-                    "the risk of unsafe assistance."
-                )
-            }
-        ]
+        elif "unintended" in fsr_lower or "application" in fsr_lower:
+            tsrs = [
+                {
+                    "id": "TSR-001",
+                    "requirement": (
+                        "The braking control unit shall validate brake-control "
+                        "commands before applying the corresponding actuator output."
+                    ),
+                    "rationale": (
+                        "Command validation helps prevent unintended brake "
+                        "application caused by invalid control signals."
+                    )
+                },
+                {
+                    "id": "TSR-002",
+                    "requirement": (
+                        "The braking control path shall inhibit actuator commands "
+                        "when a safety-relevant command fault is detected."
+                    ),
+                    "rationale": (
+                        "Command inhibition reduces the risk of unexpected "
+                        "brake application and vehicle deceleration."
+                    )
+                },
+                {
+                    "id": "TSR-003",
+                    "requirement": (
+                        "The braking control unit shall detect discrepancies "
+                        "between commanded and monitored braking states and "
+                        "report a safety-relevant fault."
+                    ),
+                    "rationale": (
+                        "Command-versus-state monitoring supports detection "
+                        "of unintended braking behavior."
+                    )
+                }
+            ]
 
+        elif "detect" in fsr_lower and (
+            "fault" in fsr_lower or
+            "loss of braking" in fsr_lower
+        ):
+            tsrs = [
+                {
+                    "id": "TSR-001",
+                    "requirement": (
+                        "The braking control unit shall monitor safety-relevant "
+                        "braking signals and detect specified faults within the "
+                        "defined diagnostic time."
+                    ),
+                    "rationale": (
+                        "Technical fault monitoring supports timely detection "
+                        "of conditions that may cause loss of braking capability."
+                    )
+                },
+                {
+                    "id": "TSR-002",
+                    "requirement": (
+                        "The braking control unit shall monitor brake position "
+                        "and motor-control feedback for deviations indicating "
+                        "a safety-relevant braking fault."
+                    ),
+                    "rationale": (
+                        "Monitoring position and motor-control feedback supports "
+                        "detection of braking-control failures."
+                    )
+                },
+                {
+                    "id": "TSR-003",
+                    "requirement": (
+                        "The braking control unit shall provide a diagnostic "
+                        "fault indication when a safety-relevant braking fault "
+                        "is detected."
+                    ),
+                    "rationale": (
+                        "Diagnostic reporting supports fault handling, monitoring "
+                        "and verification of the braking safety function."
+                    )
+                }
+            ]
+
+        else:
+            tsrs = [
+                {
+                    "id": "TSR-001",
+                    "requirement": (
+                        "The braking control unit shall monitor safety-relevant "
+                        "braking signals and detect specified faults within the "
+                        "defined diagnostic time."
+                    ),
+                    "rationale": (
+                        "Technical fault monitoring supports the linked FSR."
+                    )
+                },
+                {
+                    "id": "TSR-002",
+                    "requirement": (
+                        "The braking system shall transition to the defined "
+                        "safe braking state when a critical safety-relevant "
+                        "fault is detected."
+                    ),
+                    "rationale": (
+                        "A defined technical reaction supports safe braking "
+                        "behavior after a critical fault."
+                    )
+                },
+                {
+                    "id": "TSR-003",
+                    "requirement": (
+                        "The braking control path shall prevent unintended "
+                        "brake commands caused by detected safety-relevant faults."
+                    ),
+                    "rationale": (
+                        "Command inhibition reduces the risk of unexpected "
+                        "vehicle deceleration."
+                    )
+                }
+            ]
     else:
         tsrs = [
             {

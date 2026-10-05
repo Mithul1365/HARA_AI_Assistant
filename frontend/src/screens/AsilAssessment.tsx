@@ -9,8 +9,10 @@ interface AsilResult {
 }
 
 import AiAsilRecommendation from '@/components/AiAsilRecommendation';
+import type { ItemContext, HaraScenario } from '@/App';
 
 interface AsilAssessmentProps {
+  itemContext: ItemContext;
   onPrevious: () => void;
   onContinue: (result: AsilResult) => void;
   onResult?: (result: AsilResult) => void;
@@ -170,7 +172,7 @@ export default function AsilAssessment({
     return () => {
       cancelled = true;
     };
-  }, [severity, exposure, controllability, onResult]);
+  }, [severity, exposure, controllability, asilStorageKey]);
 
   const canContinue = Boolean(result && !loading);
 

@@ -248,7 +248,18 @@ function HaraAnalysis({
   initialEvidence = [],
   onEvidenceLoaded,
 }: HaraAnalysisProps) {
-  const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
+  const [selectedScenario, setSelectedScenario] =
+  useState<Scenario | null>(() => {
+    try {
+      const saved = localStorage.getItem(
+        'hara_ai_assistant_selected_hara_scenario'
+      );
+
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
 const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -803,7 +814,7 @@ const [loading, setLoading] = useState(true);
         <button
           type="button"
           onClick={() => {
-            if (scenarios.length > 0) {
+            if (scenarios.length > 0 && selectedScenario) {
               onContinue(selectedScenario);
             }
           }}

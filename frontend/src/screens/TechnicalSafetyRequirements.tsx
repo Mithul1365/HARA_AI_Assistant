@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import AiRequirementRecommendation from "../components/AiRequirementRecommendation";
 import type {
   ItemContext,
@@ -47,7 +47,15 @@ export default function TechnicalSafetyRequirements({
   onContinue,
 }: TechnicalSafetyRequirementsProps) {
 
-  const [results, setResults] = useState<TSRResult[]>(initialResults || []);
+  const [results, setResults] =
+  useState<TSRResult[]>(initialResults || []);
+
+  useEffect(() => {
+  if (initialResults && initialResults.length > 0) {
+    setResults(initialResults);
+  }
+}, [initialResults]);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -76,6 +84,7 @@ export default function TechnicalSafetyRequirements({
     }
 
     setLoading(true);
+    
 
     try {
 
@@ -113,12 +122,20 @@ export default function TechnicalSafetyRequirements({
         }
 
         if (Array.isArray(data.tsr_results)) {
-          generated.push(...data.tsr_results);
+          data.tsr_results.forEach((tsr: TSRResult) => {
+            generated.push({
+              ...tsr,
+              id: "TSR-" + String(generated.length + 1).padStart(3, "0"),
+            });
+          });
         }
       }
 
       setResults(generated);
-      onGenerated(generated);
+
+      
+
+       onGenerated(generated);
 
     } catch (err) {
 
@@ -346,6 +363,8 @@ export default function TechnicalSafetyRequirements({
                       );
 
                       setResults(updated);
+
+
                       onGenerated(updated);
                     }}
                   />
@@ -384,3 +403,6 @@ export default function TechnicalSafetyRequirements({
     </div>
   );
 }
+
+
+

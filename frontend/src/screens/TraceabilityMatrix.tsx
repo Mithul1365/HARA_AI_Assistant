@@ -171,7 +171,7 @@ export default function TraceabilityMatrix({
               HARA
             </div>
             <div className="mt-1 font-semibold text-slate-900">
-              HARA-001
+              {scenario ? `HARA-${String(scenario.number).padStart(3, '0')}` : '—'}
             </div>
           </div>
 
@@ -189,7 +189,7 @@ export default function TraceabilityMatrix({
               SAFETY GOAL
             </div>
             <div className="mt-1 font-semibold text-slate-900">
-              {safetyGoal?.id || 'SG-001'}
+              {safetyGoal?.id || '—'}
             </div>
           </div>
 
@@ -213,11 +213,11 @@ export default function TraceabilityMatrix({
           <div className="mt-3 space-y-2 text-sm text-slate-800">
 
             <div>
-              <span className="font-semibold">HARA-001:</span>{' '}
+              <span className="font-semibold">{scenario ? `HARA-${String(scenario.number).padStart(3, '0')}:` : '—'}</span>{' '}
               {scenario?.malfunction}
             </div>
 
-            <div className="text-blue-600">↓</div>
+            <div className="text-slate-400 text-center my-1">↓</div>
 
             <div>
               <span className="font-semibold">
@@ -225,16 +225,16 @@ export default function TraceabilityMatrix({
               </span>
             </div>
 
-            <div className="text-blue-600">↓</div>
+            <div className="text-slate-400 text-center my-1">↓</div>
 
             <div>
               <span className="font-semibold">
-                {safetyGoal?.id || 'SG-001'}:
+                {safetyGoal?.id || '—'}:
               </span>{' '}
               {safetyGoal?.safety_goal}
             </div>
 
-            <div className="text-blue-600">↓</div>
+            <div className="text-slate-400 text-center my-1">↓</div>
 
             <div>
               <span className="font-semibold">
@@ -243,7 +243,7 @@ export default function TraceabilityMatrix({
               {fsrResults.length}
             </div>
 
-            <div className="text-blue-600">↓</div>
+            <div className="text-slate-400 text-center my-1">↓</div>
 
             <div>
               <span className="font-semibold">
@@ -320,7 +320,7 @@ export default function TraceabilityMatrix({
                         key={key}
                         className="whitespace-nowrap border-b border-slate-200 px-4 py-3 font-semibold text-slate-700"
                       >
-                        {key.replaceAll('_', ' ')}
+                        {key.replace(/_/g, ' ')}
                       </th>
                     ))}
                   </tr>
@@ -364,7 +364,7 @@ export default function TraceabilityMatrix({
           onClick={onPrevious}
           className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
         >
-          ← Previous
+          Previous
         </button>
 
         <button
@@ -372,7 +372,7 @@ export default function TraceabilityMatrix({
           disabled={!generated}
           className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Continue to Verification Evidence →
+          Continue to Verification Evidence
         </button>
 
       </div>
@@ -380,3 +380,7 @@ export default function TraceabilityMatrix({
     </div>
   );
 }
+
+
+
+

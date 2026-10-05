@@ -64,6 +64,7 @@ function SafetyGoals({
 
     setLoading(true);
     setError('');
+    setResult(null);
 
     try {
 
@@ -99,8 +100,15 @@ function SafetyGoals({
         );
       }
 
-      setResult(data.safety_goal);
-      onGenerated(data.safety_goal);
+      const generatedSafetyGoal = {
+         ...data.safety_goal,
+        id:
+          data.safety_goal.id ||
+          `SG-${String(scenario.number).padStart(3, '0')}`,
+       };
+
+      setResult(generatedSafetyGoal);
+      onGenerated(generatedSafetyGoal);
 
     } catch (err) {
 
@@ -237,7 +245,7 @@ function SafetyGoals({
 
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-slate-900">
-                  {result.id || 'SG-001'} — Candidate Safety Goal
+                  {result.id || '-'} — Candidate Safety Goal
                 </h2>
 
                 <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
@@ -319,3 +327,4 @@ function SafetyGoals({
 }
 
 export default SafetyGoals;
+

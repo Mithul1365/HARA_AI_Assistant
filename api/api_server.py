@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 import time
 import hashlib
@@ -135,6 +135,11 @@ class HaraAnalyzeRequest(BaseModel):
     operating_conditions: Optional[str] = ""
 
 
+class DocumentSearchRequest(BaseModel):
+    document_id: str
+    query: str
+
+
 class AsilCalculateRequest(BaseModel):
     severity: str
     exposure: str
@@ -184,15 +189,15 @@ async def upload_document(
     Flow:
 
         PDF
-          â†“
+          ↓
         Text Extraction
-          â†“
+          ↓
         Chunking
-          â†“
+          ↓
         FAISS Vector Index
-          â†“
+          ↓
         In-memory document store
-          â†“
+          ↓
         HARA Analysis
     """
 
@@ -519,6 +524,98 @@ def get_document(
     }
 
 
+
+# ============================================================
+# DOCUMENT SEARCH
+# ============================================================
+
+@app.post("/api/documents/search")
+def search_uploaded_document(
+    request: DocumentSearchRequest
+):
+    """
+    Search only inside the uploaded engineering document.
+    Uses the existing FAISS + hybrid search engine.
+    """
+
+    document = DOCUMENTS.get(
+        request.document_id
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found."
+        )
+
+    query = request.query.strip()
+
+    if not query:
+        raise HTTPException(
+            status_code=400,
+            detail="Search query is required."
+        )
+
+    chunks = document["chunks"]
+    vector_index = document["vector_index"]
+
+    if vector_index is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Document search index is not available."
+        )
+
+    try:
+        _search_t0 = time.perf_counter()
+        results = search_documents(
+            query=query,
+            chunks=chunks,
+            index=vector_index,
+            top_k=3,
+            min_relevance=0.20,
+        )
+
+        print(f'[SEARCH PERF] TOTAL: {time.perf_counter() - _search_t0:.2f}s')
+
+        return {
+            "success": True,
+            "document_id": request.document_id,
+            "query": query,
+            "results": [
+                {
+                    "page": item.get("page"),
+                    "text": item.get("text", ""),
+                    "source": item.get(
+                        "source",
+                        document["document_name"]
+                    ),
+                    "score": item.get(
+                        "score",
+                        item.get("relevance", 0.0)
+                    ),
+                    "relevance": item.get(
+                        "relevance",
+                        0.0
+                    ),
+                }
+                for item in results
+            ],
+        }
+
+    except Exception as exc:
+        print(
+            "[DOCUMENT SEARCH ERROR]",
+            repr(exc)
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Document search failed: "
+                f"{str(exc)}"
+            ),
+        )
+
 # ============================================================
 # HARA ANALYSIS
 # ============================================================
@@ -532,15 +629,15 @@ def hara_analysis(
     Existing HARA flow:
 
         Uploaded PDF
-              â†“
+              ↓
         Existing chunks
-              â†“
+              ↓
         Existing FAISS retrieval
-              â†“
+              ↓
         Engineering evidence
-              â†“
+              ↓
         Existing Qwen3 engine
-              â†“
+              ↓
         3 HARA candidates
     """
 
@@ -1582,6 +1679,11 @@ def ai_requirement_recommend(
                 f"{exc}"
             ),
         )
+
+
+
+
+
 
 
 

@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   X,
   Loader2,
-  Search,
 } from 'lucide-react';
 
 import {
@@ -92,26 +91,6 @@ export default function ItemDefinition({
   const [uploadError, setUploadError] =
     useState('');
 
-  const [searchQuery, setSearchQuery] =
-    useState('');
-
-  const [searchResults, setSearchResults] =
-    useState<
-      Array<{
-        page?: number;
-        text: string;
-        source?: string;
-        score?: number;
-        relevance?: number;
-      }>
-    >([]);
-
-  const [searching, setSearching] =
-    useState(false);
-
-  const [searchError, setSearchError] =
-    useState('');
-
   const addFiles = (
     selectedFiles: FileList | File[]
   ) => {
@@ -190,64 +169,6 @@ export default function ItemDefinition({
     setUploadError('');
   };
 
-  const handleDocumentSearch = async () => {
-    const query = searchQuery.trim();
-
-    if (!query) {
-      setSearchError('Please enter a search query.');
-      setSearchResults([]);
-      return;
-    }
-
-    if (!processedDocument?.documentId) {
-      setSearchError('Please upload and process a document first.');
-      setSearchResults([]);
-      return;
-    }
-
-    setSearching(true);
-    setSearchError('');
-
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/documents/search`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            document_id: processedDocument.documentId,
-            query,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail || 'Document search failed.'
-        );
-      }
-
-      setSearchResults(
-        Array.isArray(data.results)
-          ? data.results
-          : []
-      );
-    } catch (error) {
-      setSearchResults([]);
-
-      setSearchError(
-        error instanceof Error
-          ? error.message
-          : 'Unable to search the uploaded document.'
-      );
-    } finally {
-      setSearching(false);
-    }
-  };
   const handleContinue = async () => {
 
     if (!systemItem.trim()) {
@@ -285,7 +206,10 @@ export default function ItemDefinition({
      * use the already processed document.
      * Do NOT force another PDF upload.
      */
-    if (processedDocument) {
+    if (
+      files.length === 0 &&
+      processedDocument
+    ) {
 
       onContinue?.(
         processedDocument,
@@ -365,7 +289,10 @@ export default function ItemDefinition({
         `Document processed successfully â€” ${data.pages} pages, ${data.chunks} chunks`
       );
 
-
+      onContinue?.(
+        documentData,
+        context
+      );
 
     } catch (error) {
 
@@ -561,124 +488,6 @@ export default function ItemDefinition({
             </div>
 
           )}
-          {/* Optional Document Search */}
-          {processedDocument && (
-
-            <div className="mt-4 border border-slate-200 rounded-lg bg-slate-50 p-4">
-
-              <div className="flex items-center gap-2 mb-2">
-                <Search className="w-4 h-4 text-slate-600" />
-
-                <h3 className="text-sm font-semibold text-slate-800">
-                  Search Uploaded Engineering Document
-                </h3>
-              </div>
-
-              <p className="text-[11px] text-slate-500 mb-3">
-                Search for functionality, requirements, components or
-                engineering details inside the uploaded document.
-              </p>
-
-              <div className="flex gap-2">
-
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(event) => {
-                    setSearchQuery(event.target.value);
-                    setSearchError('');
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !searching) {
-                      handleDocumentSearch();
-                    }
-                  }}
-                  placeholder="e.g. What is the function of the EPS system?"
-                  className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-tata-200"
-                  disabled={searching}
-                />
-
-                <button
-                  type="button"
-                  onClick={handleDocumentSearch}
-                  disabled={searching || !searchQuery.trim()}
-                  className="px-4 py-2 bg-slate-700 hover:bg-slate-800 disabled:bg-slate-300 text-white text-sm font-semibold rounded transition-colors flex items-center gap-2"
-                >
-
-                  {searching ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Searching...
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-4 h-4" />
-                      Search Document
-                    </>
-                  )}
-
-                </button>
-
-              </div>
-
-              {searchError && (
-
-                <div className="mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded text-[11px] text-red-700">
-                  {searchError}
-                </div>
-
-              )}
-
-              {searchResults.length > 0 && (
-
-                <div className="mt-4 space-y-3">
-
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                    Search Results
-                  </div>
-
-                  {searchResults.map((result, index) => (
-
-                    <div
-                      key={String(result.page ?? "page") + "-" + index}
-                      className="bg-white border border-slate-200 rounded-md p-3"
-                    >
-
-                      <div className="flex items-center justify-between gap-3 mb-2">
-
-                        <div className="text-[11px] font-semibold text-slate-700">
-                          Evidence {index + 1} · Page {result.page ?? '—'}
-                        </div>
-
-                        <div className="text-[10px] text-slate-500">
-                          Relevance:{' '}
-                          {typeof result.relevance === 'number'
-                            ? result.relevance.toFixed(2)
-                            : '—'}
-                        </div>
-
-                      </div>
-
-                      <p className="text-[12px] leading-5 text-slate-700">
-                        {result.text}
-                      </p>
-
-                      <div className="mt-2 text-[10px] text-slate-400">
-                        Source:{' '}
-                        {result.source || processedDocument.documentName}
-                      </div>
-
-                    </div>
-
-                  ))}
-
-                </div>
-
-              )}
-
-            </div>
-
-          )}
 
         </CardContent>
 
@@ -835,11 +644,3 @@ function Field({
     </div>
   );
 }
-
-
-
-
-
-
-
-

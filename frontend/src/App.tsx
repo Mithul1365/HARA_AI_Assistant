@@ -680,14 +680,11 @@ const [tsrResults, setTsrResults] =
         return (
 
           <Home
-
-            onStepClick={
-
-              setActiveStep
-
-            }
-
-          />
+            onStepClick={setActiveStep}
+            documentsUploaded={documentData ? 1 : 0}
+            haraScenarioCount={haraScenarios.length}
+           activeAsil={asilResult?.asil || '—'}
+        />
 
         );
 

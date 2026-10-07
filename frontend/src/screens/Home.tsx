@@ -15,9 +15,17 @@ import {
 
 interface HomeProps {
   onStepClick: (step: StepId) => void;
+  documentsUploaded: number;
+  haraScenarioCount: number;
+  activeAsil: string;
 }
 
-export default function Home({ onStepClick }: HomeProps) {
+export default function Home({
+  onStepClick,
+  documentsUploaded,
+  haraScenarioCount,
+  activeAsil,
+}: HomeProps) {
   const steps = WORKFLOW_STEPS.filter((s) => s.id !== 'home');
 
   const iconMap: Record<string, typeof GitBranch> = {
@@ -45,9 +53,20 @@ export default function Home({ onStepClick }: HomeProps) {
       {/* Overview cards */}
       <div className="grid grid-cols-4 gap-3">
         <StatCard label="Workflow Steps" value="9" />
-        <StatCard label="Documents Uploaded" value="0" />
-        <StatCard label="HARA Scenarios" value="0" />
-        <StatCard label="Active ASIL" value="—" />
+        <StatCard
+               label="Documents Uploaded"
+               value={String(documentsUploaded)}
+          />
+
+        <StatCard
+              label="HARA Scenarios"
+              value={String(haraScenarioCount)}
+            />
+
+         <StatCard
+              label="Active ASIL"
+              value={activeAsil}
+             />
       </div>
 
       {/* Workflow grid */}

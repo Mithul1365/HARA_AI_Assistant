@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 from typing import Dict, Any, List, Optional
 import time
 import hashlib
@@ -189,15 +189,15 @@ async def upload_document(
     Flow:
 
         PDF
-          ↓
+          â†“
         Text Extraction
-          ↓
+          â†“
         Chunking
-          ↓
+          â†“
         FAISS Vector Index
-          ↓
+          â†“
         In-memory document store
-          ↓
+          â†“
         HARA Analysis
     """
 
@@ -629,15 +629,15 @@ def hara_analysis(
     Existing HARA flow:
 
         Uploaded PDF
-              ↓
+              â†“
         Existing chunks
-              ↓
+              â†“
         Existing FAISS retrieval
-              ↓
+              â†“
         Engineering evidence
-              ↓
+              â†“
         Existing Qwen3 engine
-              ↓
+              â†“
         3 HARA candidates
     """
 
@@ -1416,6 +1416,10 @@ class ReviewDecisionRequest(BaseModel):
     decision: str
     reviewer_name: str
     comment: str = ""
+    asil: str = ""
+    safety_goal_id: str = ""
+    fsr_id: str = ""
+    tsr_ids: list = []
 
 class AuditEventRequest(BaseModel):
     event: str
@@ -1515,11 +1519,12 @@ def save_review_audit_decision(request: ReviewDecisionRequest):
         record_audit_event(
             audit_path,
             event="Review Decision",
-            details=(
-                f"{decision} recorded by {reviewer}. "
-                f"{comment}".strip()
-            ),
+            details=f"{decision} recorded by {reviewer}. {comment}".strip(),
             hara_id=request.artifact_id.strip() or "HARA-001",
+            asil=request.asil.strip(),
+            safety_goal_id=request.safety_goal_id.strip(),
+            fsr_id=request.fsr_id.strip(),
+            tsr_ids=request.tsr_ids or [],
         )
 
         return {

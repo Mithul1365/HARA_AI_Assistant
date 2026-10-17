@@ -1,9 +1,9 @@
-import re
+﻿import re
 
 import json
 import urllib.request
-
-OLLAMA_URL = "http://localhost:11434/api/chat"
+import os
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434/api/chat")
 MODEL_NAME = "qwen3:4b"
 
 
@@ -586,4 +586,6 @@ Rules:
         "confidence": confidence,
         "review_required": True,
     }
+
+
 

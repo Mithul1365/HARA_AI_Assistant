@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ClipboardCheck, History, ShieldCheck, UserCheck } from 'lucide-react';
+import { ClipboardCheck, History, ShieldCheck, UserCheck, Download } from 'lucide-react';
 import type { ItemContext, HaraScenario } from '@/App';
 
 interface ReviewAuditProps {
@@ -104,6 +104,11 @@ export default function ReviewAudit({
           decision,
           reviewer_name: reviewerName,
           comment,
+          // Persist the current workflow traceability with the review record.
+          asil: asilValue,
+          safety_goal_id: safetyGoalId,
+          fsr_id: fsrId,
+          tsr_ids: tsrIds,
         }),
       });
 
@@ -213,6 +218,299 @@ export default function ReviewAudit({
     }
   };
 
+  const downloadProjectReport = async () => {
+    const reportWindow = window.open('', '_blank');
+
+    if (!reportWindow) {
+      setMessage('Please allow pop-ups to generate the PDF report.');
+      return;
+    }
+
+    const escapeHtml = (value: unknown): string =>
+      String(value ?? 'Not available').replace(/[&<>"']/g, (character) => {
+        const entities: Record<string, string> = {
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        };
+        return entities[character];
+      });
+
+    const labelOf = (key: string) =>
+      key.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+    const renderValue = (value: any): string => {
+      if (value === null || value === undefined || value === '') {
+        return '<span class="muted">Not available</span>';
+      }
+
+      if (typeof value === 'boolean') {
+        return value ? 'Yes' : 'No';
+      }
+
+      if (Array.isArray(value)) {
+        if (!value.length) return '<span class="muted">No records available</span>';
+
+        if (value.every((item) => item === null || typeof item !== 'object')) {
+          return '<ul>' + value.map((item) =>
+            '<li>' + escapeHtml(item) + '</li>'
+          ).join('') + '</ul>';
+        }
+
+        return '<div class="record-list">' + value.map((item, index) =>
+          '<article class="record"><h3>Record ' + (index + 1) +
+          '</h3>' + renderValue(item) + '</article>'
+        ).join('') + '</div>';
+      }
+
+      if (typeof value === 'object') {
+        const entries = Object.entries(value).filter(([key]) =>
+          !['__typename'].includes(key)
+        );
+
+        if (!entries.length) return '<span class="muted">Not available</span>';
+
+        return '<table class="details"><tbody>' + entries.map(([key, item]) =>
+          '<tr><th>' + escapeHtml(labelOf(key)) + '</th><td>' +
+          renderValue(item) + '</td></tr>'
+        ).join('') + '</tbody></table>';
+      }
+
+      return escapeHtml(value);
+    };
+
+    const section = (title: string, value: unknown) =>
+      '<section><h2>' + escapeHtml(title) + '</h2>' +
+      renderValue(value) + '</section>';
+
+    const renderRequirements = (items: any[], type: string) => {
+      if (!items?.length) {
+        return '<p class="muted">No ' + escapeHtml(type) +
+          ' records are available in the current workflow.</p>';
+      }
+
+      const hiddenKeys = ['__typename'];
+      return '<div class="requirement-list">' + items.map((item, index) => {
+        if (!item || typeof item !== 'object') {
+          return '<article class="record"><h3>' + escapeHtml(type + ' ' + (index + 1)) +
+            '</h3><p>' + renderValue(item) + '</p></article>';
+        }
+        const entries = Object.entries(item).filter(([key, value]) =>
+          !hiddenKeys.includes(key) && value !== undefined && value !== null && value !== ''
+        );
+        const idEntry = entries.find(([key]) => /^(id|fsr_id|tsr_id|requirement_id)$/i.test(key));
+        const title = idEntry ? String(idEntry[1]) : type + ' ' + (index + 1);
+        const rows = entries.filter(([key]) => !idEntry || key !== idEntry[0]);
+        return '<article class="requirement-card"><h3>' + escapeHtml(title) +
+          '</h3><table class="details"><tbody>' + rows.map(([key, value]) =>
+            '<tr><th>' + escapeHtml(labelOf(key)) + '</th><td>' + renderValue(value) + '</td></tr>'
+          ).join('') + '</tbody></table></article>';
+      }).join('') + '</div>';
+    };
+
+    let evidenceRecords: any[] = [];
+    let evidenceError = '';
+
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/verification/evidence');
+      if (!response.ok) throw new Error('Evidence API returned HTTP ' + response.status);
+      const data = await response.json();
+      evidenceRecords = Array.isArray(data.records) ? data.records : [];
+    } catch (error) {
+      evidenceError = error instanceof Error
+        ? error.message
+        : 'Unable to load verification evidence.';
+    }
+
+    const evidenceHtml = evidenceError
+      ? '<p class="warning">Verification evidence could not be loaded: ' +
+        escapeHtml(evidenceError) + '. Please check the backend and generate the report again.</p>'
+      : !evidenceRecords.length
+        ? '<p class="muted">No verification evidence records were found in the backend.</p>'
+        : '<div class="record-list">' + evidenceRecords.map((record, index) =>
+          '<article class="record"><h3>Evidence ' + (index + 1) +
+          (record.artifact_id ? ' — ' + escapeHtml(record.artifact_id) : '') +
+          '</h3><table class="details"><tbody>' +
+          [['Artifact Name', record.artifact_name], ['Verification Method', record.verification_method],
+           ['Result', record.result], ['Linked Requirement', record.linked_requirement],
+           ['Evidence Reference', record.evidence_reference], ['Notes', record.notes],
+           ['Recorded At (UTC)', record.timestamp_utc]]
+            .map(([label, value]) => '<tr><th>' + escapeHtml(label) + '</th><td>' + renderValue(value) + '</td></tr>')
+            .join('') + '</tbody></table></article>'
+        ).join('') + '</div>';
+
+    const reportHtml = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>HARA Project Report</title>
+        <style>
+          @page { size: A4; margin: 16mm 14mm 18mm; }
+          * { box-sizing: border-box; }
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            color: #1e293b;
+            margin: 0;
+            font-size: 10pt;
+            line-height: 1.55;
+          }
+          .cover {
+            padding: 28px 0 20px;
+            border-bottom: 3px solid #1d4ed8;
+            margin-bottom: 26px;
+          }
+          .eyebrow {
+            color: #1d4ed8;
+            font-size: 9pt;
+            font-weight: bold;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+          }
+          h1 { font-size: 27pt; margin: 10px 0 6px; color: #0f172a; }
+          .subtitle { color: #64748b; font-size: 11pt; }
+          .meta { margin-top: 18px; color: #475569; font-size: 9pt; }
+          h2 {
+            font-size: 15pt;
+            color: #1d4ed8;
+            border-bottom: 1px solid #cbd5e1;
+            padding-bottom: 7px;
+            margin: 26px 0 12px;
+          }
+          h3 { font-size: 11pt; margin: 0 0 8px; }
+          section { margin: 0 0 22px; }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 8px 0 14px;
+            font-size: 9pt;
+            table-layout: fixed;
+          }
+          th {
+            background: #eff6ff;
+            color: #1e3a8a;
+            text-align: left;
+            font-weight: bold;
+          }
+          th, td {
+            border: 1px solid #dbe3ee;
+            padding: 7px;
+            vertical-align: top;
+            overflow-wrap: anywhere;
+          }
+          .details th { width: 30%; }
+          .details td { background: #fff; }
+          .record-list, .requirement-list { display: block; }
+          .record, .requirement-card {
+            border: 1px solid #dbe3ee;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0 14px;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .record h3, .requirement-card h3 {
+            color: #1e3a8a;
+            background: #eff6ff;
+            padding: 8px 10px;
+            border-radius: 3px;
+            margin: 0 0 8px;
+            overflow-wrap: anywhere;
+          }
+          .details tr { break-inside: avoid; }
+          .details td { overflow-wrap: anywhere; word-break: normal; }
+          .details th { overflow-wrap: anywhere; }
+          ul { margin: 4px 0; padding-left: 20px; }
+          .muted { color: #64748b; }
+          .warning { color: #92400e; background: #fffbeb; padding: 10px; }
+          .status { font-weight: bold; }
+          .footer-note {
+            margin-top: 28px;
+            padding-top: 10px;
+            border-top: 1px solid #cbd5e1;
+            color: #64748b;
+            font-size: 8pt;
+          }
+          @media print {
+            body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+            h2 { break-after: avoid; }
+            tr, .record { break-inside: avoid; }
+            thead { display: table-header-group; }
+          }
+        </style>
+      </head>
+      <body>
+        <header class="cover">
+          <div class="eyebrow">Functional Safety Documentation</div>
+          <h1>HARA Project Report</h1>
+          <div class="subtitle">Hazard Analysis and Risk Assessment</div>
+          <div class="meta">
+            Workflow ID: HARA-001<br>
+            Generated: ${escapeHtml(new Date().toLocaleString())}<br>
+            Review Status: ${escapeHtml(decision)}
+          </div>
+        </header>
+
+        ${section('1. System / Item Definition', itemContext)}
+        ${section('2. HARA Scenario', scenario)}
+        ${section('3. ASIL Assessment', asilResult)}
+        ${section('4. Safety Goal', safetyGoal)}
+
+        <section>
+          <h2>5. Functional Safety Requirements</h2>
+          ${renderRequirements(fsrResults || [], 'FSR')}
+        </section>
+
+        <section>
+          <h2>6. Technical Safety Requirements</h2>
+          ${renderRequirements(tsrResults || [], 'TSR')}
+        </section>
+
+        <section>
+          <h2>7. Verification Evidence and Traceability</h2>
+          ${evidenceHtml}
+        </section>
+
+        ${section('8. Engineering Review', {
+          'Review Decision': decision,
+          'Reviewer Name': reviewerName,
+          'Review Comment': comment,
+          'Latest Saved Review': latestReview,
+          'Review Note': reviewNote,
+        })}
+
+        ${section('9. Audit History', (auditHistory || []).map((record) => ({
+          ...record,
+          'HARA ID': record['HARA ID'] || (record as any).hara_id || 'HARA-001',
+          'Current Workflow ASIL': asilValue || 'Not available',
+          'Current Workflow Safety Goal ID': safetyGoalId || 'Not available',
+          'Current Workflow FSR ID': fsrId || 'Not available',
+          'Current Workflow TSR IDs': tsrIds.length ? tsrIds.join(', ') : 'Not available',
+        })))}
+
+        <div class="footer-note">
+          This report reflects the workflow information available when generated.
+          Confirm requirements, verification results and traceability before using
+          this document as formal functional safety evidence.
+        </div>
+      </body>
+      </html>
+    `;
+
+    reportWindow.document.open();
+    reportWindow.document.write(reportHtml);
+    reportWindow.document.close();
+    reportWindow.focus();
+
+    reportWindow.onload = () => {
+      reportWindow.print();
+    };
+  };
   const statusClass =
     decision === 'APPROVED'
       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -246,7 +544,7 @@ export default function ReviewAudit({
               </div>
               <div>
                 <h3 className="font-bold text-slate-900">Engineering Review</h3>
-                <p className="text-xs text-slate-500">HARA Workflow · HARA-001</p>
+                <p className="text-xs text-slate-500">HARA Workflow Â· HARA-001</p>
               </div>
             </div>
 
@@ -423,11 +721,19 @@ export default function ReviewAudit({
               onClick={onPrevious}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              ← Previous
+              Previous
             </button>
 
-            <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
               <button
+                type="button"
+                onClick={downloadProjectReport}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+              >
+                <Download className="h-4 w-4" />
+                Download Project Report (PDF)
+              </button>
+<button
                 type="button"
                 onClick={onNewWorkflow}
                 className="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-5 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50"
@@ -441,7 +747,7 @@ export default function ReviewAudit({
                 disabled={saving}
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Complete Workflow →
+                Complete Workflow
               </button>
             </div>
           </div>
@@ -449,6 +755,9 @@ export default function ReviewAudit({
     </div>
   );
 }
+
+
+
 
 
 

@@ -2,8 +2,9 @@ import json
 import re
 import time
 import urllib.request
+import os
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL_NAME = "qwen3:4b"
 
 

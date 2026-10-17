@@ -143,7 +143,7 @@ export default function AsilAssessment({
 
         const calculatedResult: AsilResult = {
           asil: data.candidate_asil,
-          rationale: data.rationale || "",
+          rationale: data.asil_rationale || data.rationale || "",
           severity,
           exposure,
           controllability,
@@ -373,6 +373,7 @@ export default function AsilAssessment({
     </div>
   );
 }
+
 
 
 

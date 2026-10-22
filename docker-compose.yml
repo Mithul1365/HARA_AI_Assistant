@@ -1,0 +1,35 @@
+﻿
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: hara-compact-test-backend
+    ports:
+      - "8001:8000"
+    environment:
+      OLLAMA_URL: "http://host.docker.internal:11434/api/chat"
+      HF_HOME: /app/model-cache
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data/documents:/app/data/documents
+      - ./data/uploaded_index_cache:/app/data/uploaded_index_cache
+      - ./output:/app/output
+      - hara_model_cache:/app/model-cache
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: hara-compact-test-frontend
+    ports:
+      - "5174:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  hara_model_cache:
+

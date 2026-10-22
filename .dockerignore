@@ -1,0 +1,14 @@
+﻿.venv
+**/.venv
+venv
+**/venv
+node_modules
+**/node_modules
+.git
+**/__pycache__
+**/*.py[cod]
+**/* - Copy*
+**/*- Copy*
+**/*.before-diversity-fix
+*.log
+frontend/dist
